@@ -17,6 +17,7 @@ h1{font-size:19px;font-weight:500;margin:0 0 4px}
 .f label{font-size:12px;opacity:.7}
 .chips{display:flex;gap:6px}
 .chip{display:flex;align-items:center;gap:6px;font-size:13px;padding:7px 9px;border:1px solid var(--bd);border-radius:8px;cursor:pointer}
+.chip input{accent-color:#3b82f6;margin:0}
 select,input,textarea{background:#161a21;color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:8px 9px;font:inherit;font-size:14px;outline:none}
 textarea{font-family:ui-monospace,Menlo,monospace;font-size:12px;resize:vertical}
 select:focus,input:focus,textarea:focus{border-color:var(--acc)}
@@ -95,12 +96,14 @@ button:disabled{opacity:.45;cursor:default}
   <div class="f" id="pPhrase" style="display:none">
     <label for="phrase">Phrase with ? for unknown words</label>
     <textarea id="phrase" rows="2" spellcheck="false" placeholder="abandon ? ? ? ? ? ? ? ? ? ? about"></textarea>
+    <div class="status" id="phraseHint">2 unknown words runs for minutes. 3 runs for hours.</div>
   </div>
 
   <div class="f">
     <label class="chip" style="align-self:flex-start"><input type="checkbox" id="live"><span>Scan balances live (slow, needs network)</span></label>
     <div class="f" id="liveOpts" style="display:none">
-      <label for="minbal">Flag if balance ≥ (native units)</label><input id="minbal" value="0">
+      <div class="f"><label for="minbal">Flag if balance ≥ (native units)</label><input id="minbal" value="0"></div>
+      <div class="f"><label for="conc">Parallel requests</label><input id="conc" type="number" value="4" min="1" max="12"></div>
     </div>
   </div>
 
@@ -108,6 +111,7 @@ button:disabled{opacity:.45;cursor:default}
     <button id="start" class="primary">Start</button>
     <button id="stop" disabled>Stop</button>
     <button id="clear">Clear</button>
+    <button id="reveal">Reveal keys</button>
   </div>
   <div class="bar"><div id="barfill"></div></div>
   <div class="status" id="status">Idle.</div>
@@ -118,11 +122,12 @@ button:disabled{opacity:.45;cursor:default}
 </div>
 
 <script type="module">
-import{SigningKey,computeAddress,Mnemonic,randomBytes,wordlists,sha256,ripemd160,encodeBase58,getBytes,concat,HDNodeWallet}from'https://esm.sh/ethers@6.13.4';
+import{SigningKey,computeAddress,computePublicKey,keccak256,Mnemonic,randomBytes,wordlists,sha256,ripemd160,encodeBase58,getBytes,concat,HDNodeWallet}from'https://esm.sh/ethers@6.13.4';
 const $=s=>document.querySelector(s),statusEl=$('#status'),hitsEl=$('#hits'),barfill=$('#barfill');
 const WL=wordlists.en.getWords(),TAG={evm:'EVM',btc:'BTC',tron:'TRX'};
 const RPC_ETH=['https://cloudflare-eth.com','https://rpc.publicnode.com','https://eth.llamarpc.com'];
-let running=false,tried=0,hits=0,targets=new Set();
+const TIMEOUT=8000;
+let running=false,tried=0,hits=0,errs=0,targets=new Set(),ac=null,revealed=false;
 
 $('#words').value=['bitcoin','ethereum','satoshi','nakamoto','password','passphrase','secret','wallet','money','crypto','hodl','test','test123','admin','hello','letmein','qwerty','abc123','123456','12345678','111111','000000','correct horse battery staple','a','aa','aaa','abc','abcd','bitcoin1','btc','eth','1','12','123','1234','12345','satoshi nakamoto','john','jane','michael','alice','bob','max','love','god','family','dragon','monkey','shadow','master','ninja','freedom','football'].join('\n');
 
@@ -130,6 +135,12 @@ const tick=()=>new Promise(r=>setTimeout(r,0));
 const b58c=(v,p)=>{const b=concat([new Uint8Array([v])],p);return encodeBase58(concat([b,getBytes(sha256(sha256(b))).slice(0,4)]))};
 const h160=p=>getBytes(ripemd160(sha256(p)));
 const chains=()=>[...document.querySelectorAll('#chains input:checked')].map(c=>c.value);
+
+function semaphore(max){
+  let active=0;const q=[];
+  const pump=()=>{while(active<max&&q.length){const j=q.shift();active++;j.fn().then(j.res,j.rej).finally(()=>{active--;pump()})}};
+  return fn=>new Promise((res,rej)=>{q.push({fn,res,rej});pump()});
+}
 
 function loadTargets(){
   const raw=$('#targets').value.split(/[\s,]+/).map(s=>s.trim()).filter(Boolean);
@@ -152,46 +163,60 @@ $('#strat').addEventListener('change',sync);
 $('#live').addEventListener('change',sync);
 
 function derive(pk,ch){
-  const pub=new SigningKey(pk).publicKey,o={};
+  const o={};
   if(ch.includes('evm'))o.evm=computeAddress(pk);
-  if(ch.includes('btc'))o.btc=b58c(0x00,h160(pub));
-  if(ch.includes('tron'))o.tron=b58c(0x41,h160(pub));
+  if(ch.includes('btc'))o.btc=b58c(0x00,h160(new SigningKey(pk).publicKey));
+  if(ch.includes('tron')){
+    const u=getBytes(computePublicKey(pk,false)).slice(1);
+    o.tron=b58c(0x41,getBytes(keccak256(u)).slice(12));
+  }
   return o;
 }
 
-let ethIdx=0;
-async function balance(chain,addr){
+async function rpc(url,opts,signal){
+  const ctl=new AbortController();
+  const relay=()=>ctl.abort();
+  if(signal){signal.aborted?ctl.abort():signal.addEventListener('abort',relay)}
+  const timer=setTimeout(()=>ctl.abort(),TIMEOUT);
   try{
-    if(chain==='evm'){
-      for(let k=0;k<RPC_ETH.length;k++){
-        const url=RPC_ETH[(ethIdx+k)%RPC_ETH.length];
-        const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_getBalance',params:[addr,'latest']})});
-        const j=await r.json();
-        if(j.result!==undefined){ethIdx=(ethIdx+k)%RPC_ETH.length;return Number(BigInt(j.result))/1e18}
-      }
-      return null;
-    }
-    if(chain==='btc'){
-      const r=await fetch('https://mempool.space/api/address/'+addr);
-      if(!r.ok)return null;
-      const j=await r.json();
-      return (j.chain_stats.funded_txo_sum-j.chain_stats.spent_txo_sum)/1e8;
-    }
-    if(chain==='tron'){
-      const r=await fetch('https://api.trongrid.io/v1/accounts/'+addr);
-      if(!r.ok)return null;
-      const j=await r.json();
-      const d=j.data&&j.data[0];
-      return d?Number(d.balance||0)/1e6:0;
-    }
-  }catch{return null}
-  return null;
+    const r=await fetch(url,{...opts,signal:ctl.signal});
+    if(!r.ok)return{err:'HTTP '+r.status};
+    return{data:await r.json()};
+  }catch{
+    return{err:ctl.signal.aborted?'timeout/aborted':'network'};
+  }finally{clearTimeout(timer);if(signal)signal.removeEventListener('abort',relay)}
 }
 
-function line(tag,value){
-  const r=document.createElement('div');r.className='l';
+let ethIdx=0;
+async function balance(chain,addr,signal){
+  if(chain==='evm'){
+    let last='no endpoint';
+    for(let k=0;k<RPC_ETH.length;k++){
+      const url=RPC_ETH[(ethIdx+k)%RPC_ETH.length];
+      const r=await rpc(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_getBalance',params:[addr,'latest']})},signal);
+      if(r.err){last=r.err;continue}
+      if(r.data.error){last=r.data.error.message;continue}
+      if(r.data.result!==undefined){ethIdx=(ethIdx+k)%RPC_ETH.length;return{v:Number(BigInt(r.data.result))/1e18}}
+    }
+    return{err:last};
+  }
+  if(chain==='btc'){
+    const r=await rpc('https://mempool.space/api/address/'+addr,{},signal);
+    if(r.err)return{err:r.err};
+    const s=r.data.chain_stats;
+    return{v:(s.funded_txo_sum-s.spent_txo_sum)/1e8};
+  }
+  const r=await rpc('https://api.trongrid.io/v1/accounts/'+addr,{},signal);
+  if(r.err)return{err:r.err};
+  const d=r.data.data&&r.data.data[0];
+  return{v:d?Number(d.balance||0)/1e6:0};
+}
+
+function line(tag,value,secret){
+  const r=document.createElement('div');r.className='l'+(secret?' secret':'');
   const t=document.createElement('span');t.className='t';t.textContent=tag;
-  const c=document.createElement('code');c.textContent=value;
+  const c=document.createElement('code');c.dataset.full=value;
+  c.textContent=secret&&!revealed?'•'.repeat(28):value;
   const b=document.createElement('button');b.textContent='Copy';
   b.onclick=async()=>{try{await navigator.clipboard.writeText(value)}catch{}b.textContent='Copied';setTimeout(()=>b.textContent='Copy',1000)};
   r.append(t,c,b);return r;
@@ -205,10 +230,16 @@ function addHit(label,addrs,pk,phrase,path,balances){
     const bal=balances&&balances[c];
     el.appendChild(line(TAG[c],a+(bal!=null?'   ['+bal+' funded]':'')));
   }
-  if(pk)el.appendChild(line('KEY',pk));
-  if(phrase)el.appendChild(line('SEED',phrase));
+  if(pk)el.appendChild(line('KEY',pk,true));
+  if(phrase)el.appendChild(line('SEED',phrase,true));
   hitsEl.prepend(el);
 }
+
+$('#reveal').addEventListener('click',()=>{
+  revealed=!revealed;
+  document.querySelectorAll('.l.secret code').forEach(c=>{c.textContent=revealed?c.dataset.full:'•'.repeat(28)});
+  $('#reveal').textContent=revealed?'Hide keys':'Reveal keys';
+});
 
 function*ints(a,b){for(let i=a;i<=b;i++)yield{pk:i.toString(16).padStart(64,'0'),label:'integer '+i}}
 function*hexSrc(t){for(const raw of t.split(/\s+/)){const h=raw.trim().replace(/^0x/,'');if(/^[0-9a-fA-F]{1,64}$/.test(h))yield{pk:h.padStart(64,'0'),label:'hex '+h.slice(-8)}}}
@@ -229,7 +260,8 @@ async function run(){
   else{const n=Number($('#mcount').value)||300;iter=mnSrc(n,Number($('#mwords').value));total=n}
 
   const live=$('#live').checked,minbal=Number($('#minbal').value)||0;
-  running=true;tried=0;
+  const limit=semaphore(Math.max(1,Math.min(12,Number($('#conc').value)||4)));
+  running=true;tried=0;errs=0;ac=new AbortController();
   $('#start').disabled=true;$('#stop').disabled=false;
   const t0=performance.now();
 
@@ -239,21 +271,24 @@ async function run(){
     tried++;
 
     if(targets.size&&Object.values(addrs).some(a=>targets.has(a)||targets.has(a.toLowerCase()))){
-      addHit(cand.label,addrs,cand.pk,cand.phrase,cand.path);statusEl.textContent='target hit on '+cand.label+' after '+tried.toLocaleString();break;
+      addHit(cand.label,addrs,cand.pk,cand.phrase,cand.path);
+      statusEl.textContent='target hit on '+cand.label+' after '+tried.toLocaleString();break;
     }
 
     if(live){
       const bal={};let flag=false;
       await Promise.all(Object.entries(addrs).map(async([c,a])=>{
-        const b=await balance(c,a);bal[c]=b;
-        if(b!=null&&b>0&&b>=minbal)flag=true;
+        const r=await limit(()=>balance(c,a,ac.signal));
+        if(r.err){errs++;bal[c]=null;return}
+        bal[c]=r.v;
+        if(r.v>0&&r.v>=minbal)flag=true;
       }));
       if(flag)addHit(cand.label,addrs,cand.pk,cand.phrase,cand.path,bal);
     }
 
-    if(tried%10===0||!live){
-      const rate=Math.round(tried/((performance.now()-t0)/1000));
-      statusEl.textContent=tried.toLocaleString()+' tried · '+rate+'/s · '+hits+' hits';
+    if(tried%(live?5:200)===0){
+      const el=(performance.now()-t0)/1000;
+      statusEl.textContent=tried.toLocaleString()+' tried · '+Math.round(tried/el)+'/s · '+hits+' hits'+(errs?' · '+errs+' rpc errors':'');
       if(total)barfill.style.width=Math.min(100,tried/total*100)+'%';
       await tick();
     }
@@ -267,9 +302,11 @@ async function runPhrase(ch){
   const blanks=parts.map((p,i)=>p==='?'?i:-1).filter(i=>i>=0);
   if(!blanks.length){statusEl.textContent='Add ? marks.';return}
   if(blanks.length>3){statusEl.textContent='Max 3 unknown words.';return}
-  running=true;tried=0;
+  running=true;tried=0;errs=0;ac=new AbortController();
   $('#start').disabled=true;$('#stop').disabled=false;
+  const total=Math.pow(WL.length,blanks.length),t0=performance.now();
   let valid=0;
+
   const fill=async d=>{
     if(!running)return;
     if(d===blanks.length){
@@ -278,19 +315,29 @@ async function runPhrase(ch){
       valid++;
       let pk;try{pk=HDNodeWallet.fromPhrase(p,'',"m/44'/60'/0'/0/0").privateKey}catch{return}
       const addrs=derive(pk,ch);
-      if(targets.size&&Object.values(addrs).some(a=>targets.has(a)||targets.has(a.toLowerCase()))){addHit('phrase match',addrs,pk,p,"m/44'/60'/0'/0/0");statusEl.textContent='HIT — '+p;running=false}
-      if(tried%20===0){statusEl.textContent=tried.toLocaleString()+' combos · '+valid.toLocaleString()+' valid · '+hits+' hits';await tick()}
+      if(targets.size&&Object.values(addrs).some(a=>targets.has(a)||targets.has(a.toLowerCase()))){
+        addHit('phrase match',addrs,pk,p,"m/44'/60'/0'/0/0");
+        statusEl.textContent='HIT — '+p;running=false;
+      }
+      if(tried%64===0){
+        const el=(performance.now()-t0)/1000,rate=tried/el;
+        const left=rate>0?Math.round((total-tried)/rate):0;
+        statusEl.textContent=tried.toLocaleString()+' combos · '+valid.toLocaleString()+' valid · '+hits+' hits · eta '+(left>3600?Math.round(left/3600)+'h':Math.round(left/60)+'m');
+        barfill.style.width=Math.min(100,tried/total*100)+'%';
+        await tick();
+      }
       return;
     }
     for(const w of WL){if(!running)return;parts[blanks[d]]=w;tried++;await fill(d+1);if(!running)return}
   };
+
   await fill(0);
-  statusEl.textContent='done — '+valid.toLocaleString()+' valid phrases';
+  if(!hits)statusEl.textContent+=' · finished, '+valid.toLocaleString()+' valid phrases';
   running=false;$('#start').disabled=false;$('#stop').disabled=true;
 }
 
 $('#start').onclick=()=>{hits=0;hitsEl.innerHTML='';run()};
-$('#stop').onclick=()=>running=false;
+$('#stop').onclick=()=>{running=false;if(ac)ac.abort();statusEl.textContent='stopped'};
 $('#clear').onclick=()=>{hitsEl.innerHTML='';hits=0};
 sync();loadTargets();
 </script>
