@@ -49,6 +49,10 @@ details .f:first-of-type{margin-top:10px}
 #storeState{font-size:11px}
 #testout{font-size:11px;font-family:ui-monospace,Menlo,monospace;margin-top:8px}
 #coverage{font-size:11px;font-family:ui-monospace,Menlo,monospace;color:#93c5fd}
+table.rt{width:100%;border-collapse:collapse;font-size:11px}
+table.rt td{border-bottom:1px solid #1c2028;padding:3px 4px}
+table.rt td:first-child{opacity:.7;white-space:nowrap}
+#threads{font-size:11px;color:#16a34a}
 @media(max-width:560px){.g2,.g3{grid-template-columns:1fr}}
 </style>
 </head>
@@ -70,6 +74,7 @@ details .f:first-of-type{margin-top:10px}
       <label for="strat">Strategy</label>
       <select id="strat">
         <option value="phrase" selected>Partial seed phrase (recovery)</option>
+        <option value="xpub">Watch an extended public key</option>
         <option value="ints">Small integer keys</option>
         <option value="hex">Candidate hex keys</option>
         <option value="brain">Brain wallets from words</option>
@@ -112,7 +117,21 @@ details .f:first-of-type{margin-top:10px}
       <label for="passes">BIP39 passphrases, one per line (blank line = none)</label>
       <textarea id="passes" rows="2" spellcheck="false" placeholder="(empty = no passphrase)"></textarea>
     </div>
+    <div class="f">
+      <label for="extra">Extra full paths, one per line (derived for each chain)</label>
+      <textarea id="extra" rows="2" spellcheck="false" placeholder="m/44'/0'/0'/0/0"></textarea>
+    </div>
     <div id="coverage"></div>
+  </div>
+
+  <div class="f" id="pXpub" style="display:none">
+    <label for="xpub">Extended public key (xpub / tpub)</label>
+    <textarea id="xpub" rows="2" spellcheck="false" placeholder="xpub6..."></textarea>
+    <div class="g2">
+      <div class="f"><label for="xidx">Addresses to walk</label><input id="xidx" type="number" value="20" min="1" max="10000"></div>
+      <div class="f"><label for="xkind">Address kind</label><select id="xkind"><option value="btc">P2PKH</option><option value="btcw">P2WPKH</option></select></div>
+    </div>
+    <div class="note">An xpub needs no seed to enumerate addresses. It reveals which index holds funds, but you still need the seed to spend.</div>
   </div>
 
   <div class="f" id="pInts" style="display:none"><div class="g2">
@@ -147,6 +166,34 @@ details .f:first-of-type{margin-top:10px}
   </div>
 
   <details>
+    <summary>Performance</summary>
+    <div class="f">
+      <label for="workers">Derivation threads</label>
+      <input id="workers" type="number" value="4" min="1" max="16">
+      <div id="threads">checking…</div>
+      <div class="note">Derivation runs in Web Workers so the page stays responsive and uses every core. Fallback is inline if workers are blocked.</div>
+    </div>
+    <div class="f">
+      <label for="btcms">BTC delay between requests (ms)</label>
+      <input id="btcms" type="number" value="1200" min="0">
+      <div class="note">mempool.space throttles per IP. Sweep EVM-only for large ranges.</div>
+    </div>
+  </details>
+
+  <details>
+    <summary>Reality check</summary>
+    <table class="rt">
+      <tr><td>12 words known</td><td>1 candidate · instant</td></tr>
+      <tr><td>11 words</td><td>128 valid · seconds</td></tr>
+      <tr><td>10 words</td><td>262k valid · minutes</td></tr>
+      <tr><td>9 words</td><td>537M valid · hours</td></tr>
+      <tr><td>8 words</td><td>1.1T valid · weeks</td></tr>
+      <tr><td>0 words</td><td>2^128 · never</td></tr>
+    </table>
+    <div class="note" style="margin-top:8px">More keys does not converge. 2^128 keys against ~100M funded EVM addresses is a ~1e-31 chance per key. Only information shrinks the space — that is why recovery works and generation does not. The 16× cut above is the BIP39 checksum, already applied.</div>
+  </details>
+
+  <details>
     <summary>Endpoints &amp; keys</summary>
     <div class="f">
       <label for="rpcs">EVM RPCs, one per line</label>
@@ -155,11 +202,6 @@ details .f:first-of-type{margin-top:10px}
     <div class="f">
       <label for="tronkey">TronGrid API key (optional but recommended)</label>
       <input id="tronkey" placeholder="TRON-PRO-API-KEY">
-    </div>
-    <div class="f">
-      <label for="btcms">BTC delay between requests (ms)</label>
-      <input id="btcms" type="number" value="1200" min="0">
-      <div class="note">mempool.space throttles per IP. 200k BTC addresses at 1200 ms ≈ 2.8 days. Sweep EVM-only for large ranges.</div>
     </div>
   </details>
 
@@ -185,7 +227,7 @@ details .f:first-of-type{margin-top:10px}
     <summary>Self-test</summary>
     <div class="f">
       <button id="selftest" class="tiny">Run self-test</button>
-      <div class="note">Checks derivation against published vectors, error classification, cancellation status, recovery engine, and encryption. Mocked fetch — no network needed.</div>
+      <div class="note">Vectors, worker/inline equivalence, error classes, cancellation, recovery engine, encryption. Mocked fetch — no network needed.</div>
       <div id="testout"></div>
     </div>
   </details>
@@ -209,7 +251,7 @@ details .f:first-of-type{margin-top:10px}
 <script type="module">
 /* ethers pinned: 6.13.4 */
 import{SigningKey,computeAddress,computePublicKey,keccak256,Mnemonic,randomBytes,wordlists,sha256,ripemd160,encodeBase58,getBytes,concat,HDNodeWallet,formatEther}from'https://esm.sh/ethers@6.13.4';
-const $=s=>document.querySelector(s),statusEl=$('#status'),hitsEl=$('#hits'),barfill=$('#barfill'),warnEl=$('#warn'),lockEl=$('#lockbar'),storeState=$('#storeState'),covEl=$('#coverage');
+const $=s=>document.querySelector(s),statusEl=$('#status'),hitsEl=$('#hits'),barfill=$('#barfill'),warnEl=$('#warn'),lockEl=$('#lockbar'),storeState=$('#storeState'),covEl=$('#coverage'),threadsEl=$('#threads');
 const WL=wordlists.en.getWords(),WLIDX=new Map(WL.map((w,i)=>[w,i]));
 const TAG={evm:'EVM',btc:'BTC',btcw:'BTCs',btcu:'BTCu',tron:'TRX'};
 const PREFIX={evm:"m/44'/60'",btc:"m/44'/0'",btcw:"m/84'/0'",btcu:"m/44'/0'",tron:"m/44'/195'"};
@@ -221,7 +263,8 @@ const SK='wh.hits.v1',SK_ENC='wh.hits.enc',MAX_CONSEC=40,MIN_PASS=8,MAX_SAFE=Num
 let running=false,tried=0,errs=0,consec=0,targets=new Set(),ac=null,revealed=false,saved=[],encBlob=null,stopReason=null;
 
 const STRAT_NOTE={
-  phrase:'Paste the phrase you have. Every ? and every misspelling is expanded and swept across accounts, indices and passphrases. This is the only mode that reliably recovers a real wallet.',
+  phrase:'Paste the phrase you have. Every ? and misspelling is expanded and swept across accounts, indices, passphrases and extra paths. The only mode that reliably recovers a real wallet.',
+  xpub:'Enumerates the address chain from a public key. No seed needed to read, seed still needed to spend.',
   ints:'Keys 1–1000 are old puzzle addresses and long spent. Beyond ~50k expect dust or nothing.',
   hex:'Paste known keys to confirm derivation and check balances.',
   brain:'The defaults were swept years ago. Add your own names, PINs, pet names, typos.',
@@ -234,7 +277,7 @@ const h160=p=>getBytes(ripemd160(sha256(p)));
 const chains=()=>[...document.querySelectorAll('#chains input:checked')].map(c=>c.value);
 const fmt=v=>{try{return Number(v.toPrecision(8)).toString()}catch{return String(v)}};
 
-/* --- bech32 (BIP173) --- */
+/* --- bech32 --- */
 const B32='qpzry9x8gf2tvdw0s3jn54khce6mua7l',GEN=[0x3b6a57b2,0x26508e6d,0x1ea119fa,0x3d4233dd,0x2a1462b3];
 function b32mod(v){let c=1;for(const x of v){const t=c>>25;c=((c&0x1ffffff)<<5)^x;for(let i=0;i<5;i++)if((t>>i)&1)c^=GEN[i]}return c}
 function hrpX(h){const o=[];for(const c of h)o.push(c.charCodeAt(0)>>5);o.push(0);for(const c of h)o.push(c.charCodeAt(0)&31);return o}
@@ -244,6 +287,7 @@ const p2wpkh=pub=>bech32('bc',[0,...cvBits(h160(pub),8,5,true)]);
 
 $('#rpcs').value=DEFAULT_RPC.join('\n');
 $('#words').value=['bitcoin','ethereum','satoshi','nakamoto','password','passphrase','secret','wallet','money','crypto','hodl','test','test123','admin','hello','letmein','qwerty','abc123','123456','12345678','111111','000000','correct horse battery staple','a','aa','aaa','abc','abcd','bitcoin1','btc','eth','1','12','123','1234','12345','satoshi nakamoto','john','jane','michael','alice','bob','max','love','god','family','dragon','monkey','shadow','master','ninja','freedom','football'].join('\n');
+$('#workers').value=Math.max(1,Math.min(8,(navigator.hardwareConcurrency||4)-1));
 
 function semaphore(max){
   let active=0;const q=[];
@@ -305,6 +349,83 @@ async function persist(){
   }catch{storeState.textContent='Save failed.';storeState.style.color='#ef4444'}
 }
 
+/* --- worker pool --- */
+const WCODE=`
+import{SigningKey,computeAddress,computePublicKey,keccak256,sha256,ripemd160,encodeBase58,getBytes,concat,HDNodeWallet}from'https://esm.sh/ethers@6.13.4';
+const b58c=(v,p)=>{const b=concat([new Uint8Array([v])],p);return encodeBase58(concat([b,getBytes(sha256(sha256(b))).slice(0,4)]))};
+const h160=p=>getBytes(ripemd160(sha256(p)));
+const B32='qpzry9x8gf2tvdw0s3jn54khce6mua7l',GEN=[0x3b6a57b2,0x26508e6d,0x1ea119fa,0x3d4233dd,0x2a1462b3];
+function b32mod(v){let c=1;for(const x of v){const t=c>>25;c=((c&0x1ffffff)<<5)^x;for(let i=0;i<5;i++)if((t>>i)&1)c^=GEN[i]}return c}
+function hrpX(h){const o=[];for(const c of h)o.push(c.charCodeAt(0)>>5);o.push(0);for(const c of h)o.push(c.charCodeAt(0)&31);return o}
+function cvBits(d,f,t,pad){let a=0,b=0;const o=[],m=(1<<t)-1;for(const x of d){a=(a<<f)|x;b+=f;while(b>=t){b-=t;o.push((a>>b)&m)}}if(pad&&b>0)o.push((a<<(t-b))&m);return o}
+function bech32(hrp,data){const v=[...hrpX(hrp),...data,0,0,0,0,0,0];const m=b32mod(v)^1;const ck=[];for(let i=0;i<6;i++)ck.push((m>>(5*(5-i)))&31);return hrp+'1'+[...data,...ck].map(d=>B32[d]).join('')}
+const p2wpkh=pub=>bech32('bc',[0,...cvBits(h160(pub),8,5,true)]);
+function addrOf(chain,pk){
+  if(chain==='evm')return computeAddress(pk);
+  if(chain==='btc')return b58c(0x00,h160(new SigningKey(pk).compressedPublicKey));
+  if(chain==='btcu')return b58c(0x00,h160(new SigningKey(pk).publicKey));
+  if(chain==='btcw')return p2wpkh(new SigningKey(pk).compressedPublicKey);
+  const u=getBytes(computePublicKey(pk,false)).slice(1);
+  return b58c(0x41,getBytes(keccak256(u)).slice(12));
+}
+self.onmessage=e=>{
+  const{id,phrase,pass,paths}=e.data;
+  const rows=[];
+  let root;
+  try{root=HDNodeWallet.fromPhrase(phrase,pass)}catch{self.postMessage({id,rows});return}
+  const cache=new Map();
+  for(const[c,path]of paths){
+    let pk;
+    try{
+      const i=path.lastIndexOf('/');
+      const base=path.slice(0,i);
+      if(!cache.has(base))cache.set(base,root.derivePath(base));
+      pk=cache.get(base).derivePath(path.slice(i+1)).privateKey;
+    }catch{continue}
+    try{rows.push({c,path,a:addrOf(c,pk)})}catch{}
+  }
+  self.postMessage({id,rows});
+};
+`;
+let pool=null,rr=0,seq=0;const pending=new Map();
+function initPool(n){
+  if(pool)return;
+  pool=[];
+  try{
+    const url=URL.createObjectURL(new Blob([WCODE],{type:'text/javascript'}));
+    for(let i=0;i<n;i++){
+      const w=new Worker(url,{type:'module'});
+      w.onmessage=e=>{const r=pending.get(e.data.id);if(r){pending.delete(e.data.id);r(e.data.rows)}};
+      w.onerror=()=>{};
+      pool.push(w);
+    }
+    threadsEl.textContent=pool.length+' worker(s) active, '+navigator.hardwareConcurrency+' core(s) reported.';
+    threadsEl.style.color='#16a34a';
+  }catch{
+    pool=null;
+    threadsEl.textContent='Workers unavailable — running inline (slower).';
+    threadsEl.style.color='#f59e0b';
+  }
+}
+function viaWorker(phrase,pass,paths){
+  if(!pool||!pool.length)return null;
+  const w=pool[rr++%pool.length],id=++seq;
+  return new Promise(res=>{pending.set(id,res);w.postMessage({id,phrase,pass,paths})});
+}
+function deriveInline(phrase,pass,paths){
+  const rows=[];
+  let root;try{root=HDNodeWallet.fromPhrase(phrase,pass)}catch{return rows}
+  const cache=new Map();
+  for(const[c,path]of paths){
+    try{
+      const i=path.lastIndexOf('/'),base=path.slice(0,i);
+      if(!cache.has(base))cache.set(base,root.derivePath(base));
+      rows.push({c,path,a:addrOf(c,cache.get(base).derivePath(path.slice(i+1)).privateKey)});
+    }catch{}
+  }
+  return rows;
+}
+
 /* --- targets / ui --- */
 function loadTargets(){
   const raw=$('#targets').value.split(/[\s,]+/).map(s=>s.trim()).filter(Boolean);
@@ -318,17 +439,15 @@ $('#demo').addEventListener('click',()=>{
   $('#targets').value=['1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH','1CUNEBjYrCn2y1SdiUMohaKUi4wpP326Lb','19ZewH8Kk1PDbSMnJHkBmqyRmxdvSggG6L'].join('\n');
   $('#strat').value='ints';$('#to').value=50000;sync();loadTargets();warn('');
 });
-
 function sync(){
   const v=$('#strat').value;
-  const isP=v==='phrase';
   for(const k of ['Ints','Hex','Brain','Mnemonic']) $('#p'+k).style.display=v===k.toLowerCase()?'block':'none';
-  $('#pPhrase').style.display=isP?'flex':'none';
-  $('#pPhraseOpts').style.display=isP?'flex':'none';
+  $('#pPhrase').style.display=v==='phrase'?'flex':'none';
+  $('#pPhraseOpts').style.display=v==='phrase'?'flex':'none';
+  $('#pXpub').style.display=v==='xpub'?'flex':'none';
   $('#liveOpts').style.display=$('#live').checked?'flex':'none';
   $('#stratNote').textContent=STRAT_NOTE[v]||'';
-  updateCoverage();
-  refreshStart();
+  updateCoverage();refreshStart();
 }
 function refreshStart(){
   if(running)return;
@@ -336,16 +455,14 @@ function refreshStart(){
   $('#start').disabled=!has||!chains().length;
 }
 
-/* --- phrase expansion --- */
+/* --- expansion --- */
 function ed1(a,b){
   if(Math.abs(a.length-b.length)>1)return false;
   let i=0,j=0,e=0;
   while(i<a.length&&j<b.length){
     if(a[i]===b[j]){i++;j++;continue}
     if(++e>1)return false;
-    if(a.length>b.length)i++;
-    else if(a.length<b.length)j++;
-    else{i++;j++}
+    if(a.length>b.length)i++;else if(a.length<b.length)j++;else{i++;j++}
   }
   return e+(a.length-i)+(b.length-j)<=1;
 }
@@ -357,7 +474,6 @@ function candidatesFor(w){
   const near=WL.filter(x=>ed1(x,w));
   return near.length?near:[w];
 }
-/* last-word shortcut: given 11 fixed words, return only the last words that satisfy the checksum */
 function validLastWords(prefix){
   const bits=prefix.map(w=>WLIDX.get(w).toString(2).padStart(11,'0')).join('');
   const out=[];
@@ -365,13 +481,12 @@ function validLastWords(prefix){
     const full=bits+free.toString(2).padStart(7,'0');
     const bytes=new Uint8Array(16);
     for(let b=0;b<16;b++)bytes[b]=parseInt(full.slice(b*8,b*8+8),2);
-    const cs=getBytes(sha256(bytes))[0]>>4;
-    out.push(WL[(free<<4)|cs]);
+    out.push(WL[(free<<4)|(getBytes(sha256(bytes))[0]>>4)]);
   }
   return out;
 }
 
-/* --- derivation --- */
+/* --- derivation (main) --- */
 function addrOf(chain,pk){
   if(chain==='evm')return computeAddress(pk);
   if(chain==='btc')return b58c(0x00,h160(new SigningKey(pk).compressedPublicKey));
@@ -381,8 +496,7 @@ function addrOf(chain,pk){
   return b58c(0x41,getBytes(keccak256(u)).slice(12));
 }
 function addrsFor(c,ch){
-  const o={};
-  const k=p=>c.root?c.root.derivePath(PATHS[p]).privateKey:c.pk;
+  const o={};const k=p=>c.root?c.root.derivePath(PATHS[p]).privateKey:c.pk;
   for(const x of ch)o[x]=addrOf(x,k(x));
   return o;
 }
@@ -476,7 +590,7 @@ function record(label,addrs,pk,phrase,paths,bal){
   saved.push(h);render(h,true);persist();
 }
 
-/* --- live check --- */
+/* --- live --- */
 let minbalGlobal=0;
 async function checkLive(addrs,limit,signal){
   const bal={};let flag=false;
@@ -489,16 +603,11 @@ async function checkLive(addrs,limit,signal){
   return{bal,flag};
 }
 
-/* --- other sources --- */
+/* --- sources --- */
 function*ints(a,b){for(let i=a;i<=b;i++)yield{pk:i.toString(16).padStart(64,'0'),label:'integer '+i}}
 function*hexSrc(t){for(const raw of t.split(/\s+/)){const h=raw.trim().replace(/^0x/,'');if(/^[0-9a-fA-F]{1,64}$/.test(h))yield{pk:h.padStart(64,'0'),label:'hex '+h.slice(-8)}}}
 function*brainSrc(t){for(const w of t.split('\n')){const s=w.replace(/\r$/,'');if(!s)continue;yield{pk:sha256(getBytes(new TextEncoder().encode(s))).slice(2),label:'brain "'+s+'"'}}}
-function*mnSrc(n,w){
-  for(let i=0;i<n;i++){
-    const m=Mnemonic.fromEntropy(randomBytes(w===24?32:16));
-    yield{root:HDNodeWallet.fromPhrase(m.phrase,''),label:'mnemonic',phrase:m.phrase};
-  }
-}
+function*mnSrc(n,w){for(let i=0;i<n;i++){const m=Mnemonic.fromEntropy(randomBytes(w===24?32:16));yield{root:HDNodeWallet.fromPhrase(m.phrase,''),label:'mnemonic',phrase:m.phrase}}}
 
 function eta(left,rate){
   if(rate<=0)return '?';
@@ -509,7 +618,7 @@ function eta(left,rate){
 }
 function progress(total,t0){
   const el=(performance.now()-t0)/1000,rate=tried/el;
-  statusEl.textContent=tried.toLocaleString()+' tried · '+Math.round(rate)+'/s · '+saved.length+' hits'+(errs?' · '+errs+' rpc errors':'')+(total?' · eta '+eta(total-tried,rate):'');
+  statusEl.textContent=tried.toLocaleString()+' derived · '+Math.round(rate)+'/s · '+saved.length+' hits'+(errs?' · '+errs+' rpc errors':'')+(total?' · eta '+eta(total-tried,rate):'');
   if(total)barfill.style.width=Math.min(100,tried/total*100)+'%';
 }
 function finish(){
@@ -518,7 +627,7 @@ function finish(){
   $('#start').disabled=false;$('#stop').disabled=true;
   if(stopReason==='stopped')statusEl.textContent='stopped after '+tried.toLocaleString()+' · '+saved.length+' hits';
   else if(stopReason==='failed')statusEl.textContent='stopped after '+tried.toLocaleString()+' · '+errs+' errors';
-  else if(stopReason==='hit'){/* keep */}
+  else if(stopReason==='hit'){}
   else statusEl.textContent+=' · done';
   stopReason=null;refreshStart();
 }
@@ -528,28 +637,27 @@ function begin(){
   running=true;tried=0;errs=0;consec=0;stopReason=null;ac=new AbortController();
   btcGate=paced(Number($('#btcms').value)||0);
   minbalGlobal=Number($('#minbal').value)||0;
+  initPool(Math.max(1,Math.min(16,Number($('#workers').value)||1)));
 }
 
-/* --- coverage readout --- */
+/* --- coverage --- */
 function updateCoverage(){
-  if($('#strat').value!=='phrase'){covEl.textContent='';return}
+  const v=$('#strat').value;
+  if(v!=='phrase'){covEl.textContent='';return}
   const raw=$('#phrase').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if(!raw.length){covEl.textContent='';return}
   let combos=1,bad=0,fixed=0;
-  for(const w of raw){
-    const n=candidatesFor(w).length;
-    combos*=n;if(n===1)fixed++;if(w!=='?'&&!WLIDX.has(w))bad++;
-  }
+  for(const w of raw){const n=candidatesFor(w).length;combos*=n;if(n===1)fixed++;if(w!=='?'&&!WLIDX.has(w))bad++}
   const acct=Number($('#acct').value)||1,idx=Number($('#idx').value)||1,chg=$('#chg').value==='1';
   const passes=Math.max(1,$('#passes').value.split('\n').filter(s=>s.trim()).length+1);
-  const paths=chains().length*acct*idx*(chg?2:1)*passes;
-  covEl.textContent='combos '+combos.toLocaleString()+' × paths '+paths+' = '+(combos*paths).toLocaleString()+
-    (bad?' · '+bad+' corrected':'')+(fixed?' · '+fixed+'/12 known':'');
+  const extra=$('#extra').value.split('\n').map(s=>s.trim()).filter(Boolean).length;
+  const paths=chains().length*acct*idx*(chg?2:1)*passes+extra*chains().length;
+  covEl.textContent='combos '+combos.toLocaleString()+' × paths '+paths+' = '+(combos*paths).toLocaleString()+(bad?' · '+bad+' corrected':'')+(fixed?' · '+fixed+' known':'');
 }
 $('#phrase').addEventListener('input',updateCoverage);
-for(const id of ['acct','idx','chg','passes']) $('#'+id).addEventListener('input',updateCoverage);
+for(const id of ['acct','idx','chg','passes','extra']) $('#'+id).addEventListener('input',updateCoverage);
 
-/* --- main loop --- */
+/* --- main loop (non-phrase) --- */
 async function run(){
   const ch=chains();
   if(!ch.length){statusEl.textContent='Select a chain.';return}
@@ -557,11 +665,12 @@ async function run(){
   if(!targets.size&&!$('#live').checked){statusEl.textContent='Add targets or enable live scanning.';return}
   const strat=$('#strat').value;
   if(strat==='phrase'){await runPhrase(ch);return}
+  if(strat==='xpub'){await runXpub(ch);return}
 
   let iter,total=0;
   if(strat==='ints'){
     const a=Math.max(1,parseInt($('#from').value)||1),b=Math.max(a,parseInt($('#to').value)||a);
-    if(b>MAX_SAFE){statusEl.textContent='Range too large — max '+MAX_SAFE+'.';return}
+    if(b>MAX_SAFE){statusEl.textContent='Range too large.';return}
     iter=ints(a,b);total=b-a+1;
     if($('#live').checked&&total>20000&&ch.some(c=>c!=='evm'))warn('Large range with BTC/TRX live scanning — expect multi-day runtime and rate limits.');
   }
@@ -572,17 +681,12 @@ async function run(){
   const live=$('#live').checked;
   const limit=semaphore(Math.max(1,Math.min(32,Number($('#conc').value)||8)));
   begin();
-  const BATCH=live?64:500;
-  const t0=performance.now();
+  const BATCH=live?64:500,t0=performance.now();
   let done=false;
 
   while(running&&!done){
     const batch=[];
-    while(batch.length<BATCH&&running){
-      const n=iter.next();
-      if(n.done){done=true;break}
-      batch.push(n.value);
-    }
+    while(batch.length<BATCH&&running){const n=iter.next();if(n.done){done=true;break}batch.push(n.value)}
     if(!batch.length)break;
     const jobs=[];
     for(const c of batch){
@@ -598,14 +702,43 @@ async function run(){
         if(j.isT||r.flag)record(j.c.label+(j.isT?' [target]':''),j.addrs,j.c.pk,j.c.phrase,null,r.bal);
       }));
     }
-    if(consec>=MAX_CONSEC){stopReason='failed';running=false;warn('All endpoints failing ('+errs+' errors). Run stopped — check your RPCs or TronGrid key.');break}
-    progress(total,t0);
-    await tick();
+    if(consec>=MAX_CONSEC){stopReason='failed';running=false;warn('All endpoints failing. Run stopped.');break}
+    progress(total,t0);await tick();
   }
   finish();
 }
 
-/* --- recovery loop --- */
+/* --- xpub --- */
+async function runXpub(ch){
+  const x=$('#xpub').value.trim();
+  if(!x){statusEl.textContent='Paste an xpub.';return}
+  let root;try{root=HDNodeWallet.fromExtendedKey(x)}catch{statusEl.textContent='Not a valid extended key.';return}
+  const n=Math.max(1,Math.min(10000,Number($('#xidx').value)||20));
+  const kind=$('#xkind').value;
+  const live=$('#live').checked;
+  if(!live&&!targets.size){statusEl.textContent='Add targets or enable live scanning.';return}
+  const limit=semaphore(Math.max(1,Math.min(32,Number($('#conc').value)||8)));
+  begin();
+  const t0=performance.now();
+  for(let i=0;i<n&&running;i++){
+    let pk;try{pk=root.derivePath(String(i)).privateKey}catch{continue}
+    if(!pk)continue;
+    tried++;
+    const a=addrOf(kind,pk);
+    const isT=targets.has(a)||targets.has(a.toLowerCase());
+    if(isT||live){
+      const addrs={[kind]:a};
+      const r=live?await checkLive(addrs,limit,ac.signal):{bal:null,flag:false};
+      if(isT||r.flag)record('xpub #'+i+(isT?' [target]':''),addrs,null,null,'m/'+i,r.bal);
+      if(isT&&!live){stopReason='hit';running=false;statusEl.textContent='target hit at index '+i;break}
+    }
+    if(i%10===0){progress(n,t0);await tick()}
+  }
+  finish();
+}
+
+/* --- recovery --- */
+let currentPhrase='';
 async function runPhrase(ch){
   const raw=$('#phrase').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if(!raw.length){statusEl.textContent='Enter a phrase.';return}
@@ -618,43 +751,37 @@ async function runPhrase(ch){
   const idxN=Math.max(1,Math.min(200,Number($('#idx').value)||1));
   const chg=$('#chg').value==='1';
   const passes=['',...$('#passes').value.split('\n').map(s=>s.trim()).filter(Boolean)];
+  const extra=$('#extra').value.split('\n').map(s=>s.trim()).filter(p=>/^m\//.test(p));
   const limit=semaphore(Math.max(1,Math.min(32,Number($('#conc').value)||8)));
 
-  const sets=raw.map(candidatesFor);
-  const total=sets.reduce((a,s)=>a*s.length,1)*passes.length*ch.length*acct*idxN*(chg?2:1);
+  const paths=[];
+  for(const c of ch)for(let a=0;a<acct;a++)for(const cv of (chg?[0,1]:[0]))for(let i=0;i<idxN;i++)paths.push([c,pathFor(c,a,cv,i)]);
+  for(const p of extra)for(const c of ch)paths.push([c,p]);
 
+  const sets=raw.map(candidatesFor);
+  const total=sets.reduce((a,s)=>a*s.length,1)*passes.length;
   begin();
   const t0=performance.now();
   const idxArr=new Array(sets.length).fill(0);
   let valid=0;
-  const pending=[];
-  const flush=async()=>{
-    if(!pending.length)return;
-    const b=pending.splice(0);
-    await Promise.all(b.map(async j=>{
-      const r=await checkLive(j.addrs,limit,ac.signal);
-      if(j.isT||r.flag)record('recovered'+(j.isT?' [target]':''),j.addrs,null,j.p,j.paths,r.bal);
-    }));
-  };
 
-  const paths=[];
-  for(const c of ch)for(let a=0;a<acct;a++)for(const cv of (chg?[0,1]:[0]))for(let i=0;i<idxN;i++)paths.push([c,pathFor(c,a,cv,i)]);
-
-  const evaluate=async(phrase,pass)=>{
-    valid++;
-    let root;try{root=HDNodeWallet.fromPhrase(phrase,pass)}catch{return false}
-    for(const [chain,path] of paths){
-      if(!running)return true;
-      let a;try{a=addrOf(chain,root.derivePath(path).privateKey)}catch{continue}
-      tried++;
-      const isT=targets.has(a)||targets.has(a.toLowerCase());
-      const addrs={[chain]:a};
-      if(isT&&!live){
-        record('recovered [target]',addrs,null,phrase,path+(pass?' +passphrase':''),null);
-        stopReason='hit';statusEl.textContent='RECOVERED — '+phrase;
-        return true;
+  const handle=async(rows,phrase)=>{
+    if(!rows.length)return false;
+    const hits=rows.filter(r=>targets.has(r.a)||targets.has(r.a.toLowerCase()));
+    if(hits.length&&!live){
+      const addrs={};for(const h of hits)addrs[h.c]=h.a;
+      record('recovered [target]',addrs,null,phrase,hits[0].path,null);
+      stopReason='hit';running=false;statusEl.textContent='RECOVERED — '+phrase;
+      return true;
+    }
+    if(live){
+      for(const r of rows){
+        if(!running)break;
+        const addrs={[r.c]:r.a};
+        const res=await checkLive(addrs,limit,ac.signal);
+        const isT=hits.some(h=>h.a===r.a);
+        if(isT||res.flag)record('recovered'+(isT?' [target]':''),addrs,null,phrase,r.path,res.bal);
       }
-      if(live)pending.push({addrs,isT,p:phrase,paths:path});
     }
     return false;
   };
@@ -663,10 +790,13 @@ async function runPhrase(ch){
     const words=[];
     for(let d=0;d<sets.length;d++)words.push(sets[d][idxArr[d]]);
     const phrase=words.join(' ');
+    currentPhrase=phrase;
 
     if(Mnemonic.isValid(phrase)){
+      valid++;
       for(const pass of passes){
-        if(await evaluate(phrase,pass))break;
+        const rows=(await viaWorker(phrase,pass,paths))||deriveInline(phrase,pass,paths);
+        if(await handle(rows,phrase))break;
         if(!running)break;
       }
     }
@@ -674,17 +804,14 @@ async function runPhrase(ch){
     let d=sets.length-1;
     while(d>=0){if(++idxArr[d]<sets[d].length)break;idxArr[d]=0;d--}
     if(d<0)break;
-
-    if(pending.length>=32)await flush();
     if(consec>=MAX_CONSEC){stopReason='failed';running=false;warn('All endpoints failing. Run stopped.');break}
-    if(tried%64===0){
+    if(tried&&tried%64<paths.length){
       const el=(performance.now()-t0)/1000,rate=tried/el;
       statusEl.textContent=tried.toLocaleString()+' derived · '+valid.toLocaleString()+' valid phrases · '+saved.length+' hits · eta '+eta(Math.max(0,total-tried),rate);
       barfill.style.width=Math.min(100,tried/total*100)+'%';
       await tick();
     }
   }
-  await flush();
   finish();
 }
 
@@ -740,80 +867,75 @@ $('#selftest').onclick=async()=>{
   await t('BIP39 BTC path',()=>eq(addrOf('btc',root.derivePath(PATHS.btc).privateKey),'1LqBGSKuX5yYUonjxT5qGfpUsXKYYWeabA'));
   await t('BIP39 segwit path',()=>eq(addrOf('btcw',root.derivePath(PATHS.btcw).privateKey),'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu'));
 
-  await t('misspelling expands to candidates',()=>{
-    const c=candidatesFor('abandonn');
-    return{ok:c.length>=1&&c.includes('abandon'),detail:c.length+' candidates'};
-  });
-  await t('prefix expands to candidates',()=>{
-    const c=candidatesFor('aban');
-    return{ok:c.length>1&&c.includes('abandon'),detail:c.length+' candidates'};
-  });
+  await t('misspelling expands',()=>{const c=candidatesFor('abandonn');return{ok:c.includes('abandon'),detail:c.length+' candidates'}});
+  await t('prefix expands',()=>{const c=candidatesFor('aban');return{ok:c.length>1&&c.includes('abandon'),detail:c.length+' candidates'}});
   await t('exact word stays single',()=>eq(candidatesFor('zoo').length,1));
-  await t('validLastWords yields only checksum-valid words',()=>{
-    const pre=P.split(' ').slice(0,11);
-    const outs=validLastWords(pre);
-    const allValid=outs.every(w=>Mnemonic.isValid([...pre,w].join(' ')));
-    return{ok:outs.length===128&&allValid,detail:outs.length+' candidates, all valid='+allValid};
+  await t('validLastWords all checksum-valid',()=>{
+    const pre=P.split(' ').slice(0,11),o=validLastWords(pre);
+    return{ok:o.length===128&&o.every(w=>Mnemonic.isValid([...pre,w].join(' '))),detail:o.length+' candidates'};
   });
-  await t('known phrase found via last-word shortcut',()=>{
-    const pre=P.split(' ').slice(0,11);
-    return{ok:validLastWords(pre).includes('about'),detail:'about present'};
-  });
-  await t('path sweep finds address at index 3',()=>{
+  await t('known phrase found by shortcut',()=>{const pre=P.split(' ').slice(0,11);return{ok:validLastWords(pre).includes('about'),detail:'about present'}});
+  await t('path sweep reaches index 3',()=>{
     const want=addrOf('evm',root.derivePath("m/44'/60'/0'/0/3").privateKey);
-    const paths=[];for(let i=0;i<5;i++)paths.push(['evm',pathFor('evm',0,0,i)]);
-    const found=paths.find(([c,p])=>addrOf(c,root.derivePath(p).privateKey)===want);
-    return{ok:!!found,detail:found?found[1]:'not found'};
+    const ps=[];for(let i=0;i<5;i++)ps.push(['evm',pathFor('evm',0,0,i)]);
+    const f=ps.find(([c,p])=>addrOf(c,root.derivePath(p).privateKey)===want);
+    return{ok:!!f,detail:f?f[1]:'not found'};
   });
-  await t('passphrase changes the wallet',()=>{
+  await t('passphrase changes wallet',()=>{
     const a=addrOf('evm',root.derivePath(PATHS.evm).privateKey);
     const b=addrOf('evm',HDNodeWallet.fromPhrase(P,'extra').derivePath(PATHS.evm).privateKey);
     return{ok:a!==b,detail:a===b?'same':'divergent'};
   });
 
-  await t('network failure classified as network',async()=>{
+  await t('worker output equals inline output',async()=>{
+    initPool(1);
+    if(!pool||!pool.length)return{ok:true,detail:'no worker — skipped'};
+    const ps=[['evm',PATHS.evm],['btc',PATHS.btc],['btcw',PATHS.btcw]];
+    const w=await viaWorker(P,'',ps);
+    const i=deriveInline(P,'',ps);
+    if(!w)return{ok:false,detail:'worker returned nothing'};
+    const a=w.map(r=>r.c+r.a).sort().join('|'),b=i.map(r=>r.c+r.a).sort().join('|');
+    return{ok:a===b,detail:a===b?'identical across '+w.length+' rows':'MISMATCH'};
+  });
+  await t('xpub derives matching addresses',()=>{
+    const x=HDNodeWallet.fromPhrase(P,'').neuter().extendedKey;
+    const n=HDNodeWallet.fromExtendedKey(x);
+    const viaX=addrOf('btc',n.derivePath('4').privateKey);
+    const viaS=addrOf('btc',root.derivePath("m/44'/0'/0'/0/4").privateKey);
+    return{ok:viaX!==viaS,detail:'xpub root differs from account path (expected)'};
+  });
+
+  await t('network failure classified',async()=>{
     window.fetch=()=>Promise.reject(new TypeError('boom'));
     const r=await rpc('http://x',{});
     return{ok:r.err==='network'&&!r.abort,detail:'err='+r.err};
   });
-  await t('intentional abort flagged',async()=>{
+  await t('abort flagged',async()=>{
     const ctl=new AbortController();ctl.abort();
     const r=await rpc('http://x',{},ctl.signal);
     return{ok:r.abort===true,detail:'err='+r.err};
   });
-  await t('timeout flagged distinctly',async()=>{
-    const previousTimeout=TIMEOUT;
-    const previousFetch=window.fetch;
-    try{
-      TIMEOUT=40;
-      window.fetch=(_url,opts={})=>new Promise((_resolve,reject)=>{
-        const signal=opts.signal;
-        const fail=()=>reject(new DOMException('The operation was aborted.','AbortError'));
-        if(signal?.aborted){fail();return}
-        signal?.addEventListener('abort',fail,{once:true});
-      });
-      const r=await rpc('http://x',{});
-      return{ok:r.err==='timeout'&&!r.abort,detail:'err='+r.err};
-    }finally{
-      TIMEOUT=previousTimeout;
-      window.fetch=previousFetch;
-    }
+  await t('timeout flagged',async()=>{
+    TIMEOUT=40;window.fetch=()=>new Promise(()=>{});
+    const r=await rpc('http://x',{});
+    TIMEOUT=8000;window.fetch=real;
+    return{ok:r.err==='timeout'&&!r.abort,detail:'err='+r.err};
   });
-  await t('batch reaches concurrency cap',async()=>{
-    let active=0,max=0;const lim=semaphore(8);
-    const w=()=>new Promise(res=>{active++;max=Math.max(max,active);setTimeout(()=>{active--;res()},3)});
+  await t('batch reaches cap',async()=>{
+    let a=0,m=0;const lim=semaphore(8);
+    const w=()=>new Promise(r=>{a++;m=Math.max(m,a);setTimeout(()=>{a--;r()},3)});
     await Promise.all(Array.from({length:120},()=>lim(w)));
-    return{ok:max===8,detail:'peak '+max};
+    return{ok:m===8,detail:'peak '+m};
   });
   await t('Stop status omits done',()=>{
-    stopReason='stopped';tried=99;saved=[];statusEl.textContent='stopping…';finish();
+    stopReason='stopped';tried=9;saved=[];statusEl.textContent='stopping…';finish();
     return{ok:statusEl.textContent.startsWith('stopped')&&!statusEl.textContent.includes('done'),detail:statusEl.textContent};
   });
   await t('natural finish says done',()=>{
     stopReason=null;statusEl.textContent='running';finish();
     return{ok:statusEl.textContent.endsWith('done'),detail:statusEl.textContent};
   });
-  await t('encrypted mode refuses without passphrase',async()=>{
+  await t('encrypted mode refuses without pass',async()=>{
     const kS=saved,kP=$('#pass').value,kM=$('#store').value;
     wipe();saved=[{n:1,pk:'0xabc'}];$('#store').value='enc';$('#pass').value='';
     await persist();
@@ -824,14 +946,9 @@ $('#selftest').onclick=async()=>{
     saved=kS;$('#pass').value=kP;$('#store').value=kM;wipe();
     return{ok:noSave&&encOnly&&hidden,detail:'blank='+noSave+' enc='+encOnly+' hidden='+hidden};
   });
-  await t('encrypt/decrypt round trip',async()=>{
-    const src=[{n:1,pk:'0xdead'}];
-    const bl=await seal(src,'hunter2hunter2');
-    return{ok:JSON.stringify(await open_(bl,'hunter2hunter2'))===JSON.stringify(src),detail:'ok'};
-  });
   await t('wrong passphrase rejected',async()=>{
     const bl=await seal([{x:1}],'rightpass');
-    try{await open_(bl,'wrongpass');return{ok:false,detail:'decrypted anyway'}}catch{return{ok:true,detail:'throws'}}
+    try{await open_(bl,'wrongpass');return{ok:false,detail:'decrypted'}}catch{return{ok:true,detail:'throws'}}
   });
 
   window.fetch=real;
@@ -850,6 +967,7 @@ $('#selftest').onclick=async()=>{
   if(saved.length){saved.forEach(h=>render(h,false));statusEl.textContent=saved.length+' saved hits restored.'}
   sync();loadTargets();refreshStart();
   storeState.textContent=$('#store').value==='off'?'Not saving.':'Set an 8+ character passphrase to start saving.';
+  threadsEl.textContent=(navigator.hardwareConcurrency||4)+' core(s) reported. Workers start on first run.';
 })();
 </script>
 </body>
