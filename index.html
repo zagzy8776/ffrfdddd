@@ -5,38 +5,45 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>wallet hunter</title>
 <style>
-:root{--fg:#e5e7eb;--bg:#0f1115;--bd:#2a2f3a;--acc:#2563eb;--ok:#16a34a}
+:root{--fg:#e5e7eb;--bg:#0f1115;--bd:#2a2f3a;--acc:#2563eb;--ok:#16a34a;--warn:#f59e0b;--bad:#ef4444}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 Inter,system-ui,sans-serif;padding:24px}
-.wrap{max-width:860px;margin:0 auto}
-h1{font-size:19px;font-weight:500;margin:0 0 4px}
-.sub{font-size:12px;opacity:.55;margin-bottom:18px}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 Inter,system-ui,sans-serif;padding:20px}
+.wrap{max-width:100%;margin:0 auto}
+h1{font-size:18px;font-weight:500;margin:0 0 4px}
+.sub{font-size:12px;opacity:.55;margin-bottom:14px}
 .panel{border:1px solid var(--bd);border-radius:10px;padding:14px}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .f{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
 .f label{font-size:12px;opacity:.7}
-.chips{display:flex;gap:6px}
-.chip{display:flex;align-items:center;gap:6px;font-size:13px;padding:7px 9px;border:1px solid var(--bd);border-radius:8px;cursor:pointer}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{display:flex;align-items:center;gap:6px;font-size:12px;padding:6px 8px;border:1px solid var(--bd);border-radius:8px;cursor:pointer}
 .chip input{accent-color:#3b82f6;margin:0}
-select,input,textarea{background:#161a21;color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:8px 9px;font:inherit;font-size:14px;outline:none}
+select,input,textarea{background:#161a21;color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:8px 9px;font:inherit;font-size:13px;outline:none;width:100%}
 textarea{font-family:ui-monospace,Menlo,monospace;font-size:12px;resize:vertical}
 select:focus,input:focus,textarea:focus{border-color:var(--acc)}
 .acts{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-button{font:inherit;font-size:13px;font-weight:500;padding:8px 13px;border-radius:8px;border:1px solid var(--bd);background:transparent;color:var(--fg);cursor:pointer}
+button{font:inherit;font-size:12px;font-weight:500;padding:7px 12px;border-radius:8px;border:1px solid var(--bd);background:transparent;color:var(--fg);cursor:pointer}
 button.primary{background:var(--acc);border-color:var(--acc);color:#fff}
 button:disabled{opacity:.45;cursor:default}
-.tiny{font-size:11px;padding:3px 9px}
+.tiny{font-size:11px;padding:3px 8px}
 .bar{height:3px;background:var(--bd);border-radius:2px;overflow:hidden;margin-bottom:8px}
 #barfill{height:100%;width:0;background:var(--acc);transition:width .15s linear}
-.status{font-size:12px;opacity:.7;font-family:ui-monospace,Menlo,monospace;min-height:16px}
+.status{font-size:11px;opacity:.7;font-family:ui-monospace,Menlo,monospace;min-height:16px;word-break:break-word}
+.warn{font-size:12px;color:var(--warn);border:1px solid #4a3a12;background:#1e1708;border-radius:8px;padding:8px 10px;margin-bottom:10px;display:none}
 .out{display:flex;flex-direction:column;gap:8px;margin-top:12px}
-.hit{border:1px solid var(--ok);border-radius:9px;padding:11px}
-.hit .hh{font-size:11px;color:var(--ok);font-weight:500;margin-bottom:7px}
+.hit{border:1px solid var(--ok);border-radius:9px;padding:10px}
+.hit .hh{font-size:11px;color:var(--ok);font-weight:500;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px}
+.hit .hh .ts{opacity:.5;font-weight:400}
 .l{display:flex;align-items:center;gap:8px;padding:2px 0}
-.l .t{font-size:10px;width:46px;text-align:center;flex:none;border:1px solid var(--bd);border-radius:5px;padding:2px 4px;opacity:.8}
-.l code{font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all;flex:1}
-.l button{font-size:11px;padding:3px 8px;flex:none}
-.foot{font-size:11px;opacity:.5;line-height:1.6;margin-top:16px}
+.l .t{font-size:10px;width:44px;text-align:center;flex:none;border:1px solid var(--bd);border-radius:5px;padding:2px 4px;opacity:.8}
+.l code{font-family:ui-monospace,Menlo,monospace;font-size:11px;word-break:break-all;flex:1}
+.l button{font-size:10px;padding:2px 7px;flex:none}
+.bal{font-size:10px;color:var(--ok);flex:none}
+.foot{font-size:11px;opacity:.5;line-height:1.6;margin-top:14px}
+details{border:1px solid var(--bd);border-radius:8px;padding:8px 10px;margin-bottom:12px}
+summary{font-size:12px;opacity:.7;cursor:pointer}
+details .f:first-of-type{margin-top:10px}
+.note{font-size:11px;opacity:.55;line-height:1.5}
 @media(max-width:560px){.g2{grid-template-columns:1fr}}
 </style>
 </head>
@@ -44,6 +51,8 @@ button:disabled{opacity:.45;cursor:default}
 <div class="wrap">
 <h1>wallet hunter</h1>
 <div class="sub">Derive candidate keys locally, match against target addresses, or scan for funded wallets over RPC.</div>
+
+<div id="warn" class="warn"></div>
 
 <div class="panel">
   <div class="g2">
@@ -56,6 +65,7 @@ button:disabled{opacity:.45;cursor:default}
         <option value="mnemonic">Random mnemonic blast</option>
         <option value="phrase">Partial seed phrase</option>
       </select>
+      <div class="note" id="stratNote"></div>
     </div>
     <div class="f">
       <label>Chains</label>
@@ -63,13 +73,15 @@ button:disabled{opacity:.45;cursor:default}
         <label class="chip"><input type="checkbox" value="evm" checked><span>EVM</span></label>
         <label class="chip"><input type="checkbox" value="btc" checked><span>BTC</span></label>
         <label class="chip"><input type="checkbox" value="tron"><span>TRX</span></label>
+        <label class="chip"><input type="checkbox" value="btcu"><span>BTC legacy (uncompressed)</span></label>
       </div>
+      <div class="note">BTC uses compressed keys. Enable legacy only for old puzzle addresses.</div>
     </div>
   </div>
 
   <div class="f">
-    <label for="targets">Target addresses, one per line</label>
-    <textarea id="targets" rows="3" spellcheck="false" placeholder="0x... or 1..."></textarea>
+    <label for="targets">Target addresses, one per line (optional if scanning live)</label>
+    <textarea id="targets" rows="3" spellcheck="false" placeholder="0x... or 1... or T..."></textarea>
     <div><button id="demo" class="tiny">Load demo targets</button> <span class="status" id="tcount">0 loaded</span></div>
   </div>
 
@@ -96,80 +108,139 @@ button:disabled{opacity:.45;cursor:default}
   <div class="f" id="pPhrase" style="display:none">
     <label for="phrase">Phrase with ? for unknown words</label>
     <textarea id="phrase" rows="2" spellcheck="false" placeholder="abandon ? ? ? ? ? ? ? ? ? ? about"></textarea>
-    <div class="status" id="phraseHint">2 unknown words runs for minutes. 3 runs for hours.</div>
+    <div class="status" id="phraseHint"></div>
   </div>
 
   <div class="f">
-    <label class="chip" style="align-self:flex-start"><input type="checkbox" id="live"><span>Scan balances live (slow, needs network)</span></label>
+    <label class="chip" style="align-self:flex-start"><input type="checkbox" id="live"><span>Scan balances live</span></label>
     <div class="f" id="liveOpts" style="display:none">
-      <div class="f"><label for="minbal">Flag if balance ≥ (native units)</label><input id="minbal" value="0"></div>
-      <div class="f"><label for="conc">Parallel requests</label><input id="conc" type="number" value="4" min="1" max="12"></div>
+      <div class="g2">
+        <div class="f"><label for="minbal">Flag if balance ≥ (native units)</label><input id="minbal" value="0"></div>
+        <div class="f"><label for="conc">Parallel requests</label><input id="conc" type="number" value="4" min="1" max="12"></div>
+      </div>
+      <div class="note">Public RPCs rate-limit hard. ~2–4 req/s per endpoint is the realistic ceiling.</div>
     </div>
   </div>
 
+  <details>
+    <summary>Endpoints &amp; keys</summary>
+    <div class="f">
+      <label for="rpcs">EVM RPCs, one per line</label>
+      <textarea id="rpcs" rows="4" spellcheck="false"></textarea>
+    </div>
+    <div class="f">
+      <label for="tronkey">TronGrid API key (optional but recommended)</label>
+      <input id="tronkey" placeholder="TRON-PRO-API-KEY">
+    </div>
+    <div class="f">
+      <label for="btcms">BTC delay between requests (ms)</label>
+      <input id="btcms" type="number" value="1200" min="0">
+      <div class="note">mempool.space throttles per IP. 200k BTC addresses at 1200 ms ≈ 2.8 days. Sweep EVM-only for large ranges.</div>
+    </div>
+  </details>
+
   <div class="acts">
-    <button id="start" class="primary">Start</button>
+    <button id="start" class="primary" disabled>Start</button>
     <button id="stop" disabled>Stop</button>
-    <button id="clear">Clear</button>
     <button id="reveal">Reveal keys</button>
+    <button id="export">Export JSON</button>
+    <button id="clear">Clear view</button>
+    <button id="clearsaved">Delete saved</button>
   </div>
   <div class="bar"><div id="barfill"></div></div>
   <div class="status" id="status">Idle.</div>
 </div>
 
 <div id="hits" class="out"></div>
-<div class="foot">Keys are generated in your browser. Local matching is instant; balance scanning is rate-limited by public RPC nodes. Verify before funding.</div>
+<div class="foot">Keys are generated in your browser and never transmitted. Hits are saved to localStorage on this device — that includes private keys, so treat this browser as hot. Verify before funding.</div>
 </div>
 
 <script type="module">
-import{SigningKey,computeAddress,computePublicKey,keccak256,Mnemonic,randomBytes,wordlists,sha256,ripemd160,encodeBase58,getBytes,concat,HDNodeWallet}from'https://esm.sh/ethers@6.13.4';
-const $=s=>document.querySelector(s),statusEl=$('#status'),hitsEl=$('#hits'),barfill=$('#barfill');
-const WL=wordlists.en.getWords(),TAG={evm:'EVM',btc:'BTC',tron:'TRX'};
-const RPC_ETH=['https://cloudflare-eth.com','https://rpc.publicnode.com','https://eth.llamarpc.com'];
-const TIMEOUT=8000;
-let running=false,tried=0,hits=0,errs=0,targets=new Set(),ac=null,revealed=false;
+/* ethers pinned: 6.13.4 */
+import{SigningKey,computeAddress,computePublicKey,keccak256,Mnemonic,randomBytes,wordlists,sha256,ripemd160,encodeBase58,getBytes,concat,HDNodeWallet,formatEther}from'https://esm.sh/ethers@6.13.4';
+const $=s=>document.querySelector(s),statusEl=$('#status'),hitsEl=$('#hits'),barfill=$('#barfill'),warnEl=$('#warn');
+const WL=wordlists.en.getWords(),TAG={evm:'EVM',btc:'BTC',btcu:'BTCu',tron:'TRX'};
+const PATH="m/44'/60'/0'/0/0";
+const DEFAULT_RPC=['https://ethereum-rpc.publicnode.com','https://eth.llamarpc.com','https://eth.drpc.org','https://1rpc.io/eth'];
+const BTC_EP=['https://mempool.space','https://blockstream.info'];
+const TIMEOUT=8000,SK='wh.hits.v1',MAX_CONSEC=40;
+let running=false,tried=0,errs=0,consec=0,targets=new Set(),ac=null,revealed=false,saved=[];
 
-$('#words').value=['bitcoin','ethereum','satoshi','nakamoto','password','passphrase','secret','wallet','money','crypto','hodl','test','test123','admin','hello','letmein','qwerty','abc123','123456','12345678','111111','000000','correct horse battery staple','a','aa','aaa','abc','abcd','bitcoin1','btc','eth','1','12','123','1234','12345','satoshi nakamoto','john','jane','michael','alice','bob','max','love','god','family','dragon','monkey','shadow','master','ninja','freedom','football'].join('\n');
+const STRAT_NOTE={
+  ints:'Keys 1–1000 are old puzzle addresses and long spent. Beyond ~50k expect dust or nothing.',
+  hex:'Paste known keys to confirm derivation and check balances.',
+  brain:'The defaults were swept years ago. Add your own names, PINs, pet names, typos.',
+  mnemonic:'Random 12-word space is 2^128. 300 wallets is a lottery ticket — expect zero.',
+  phrase:'Only finds funded wallets if you supply targets or scan live. 3 blanks ≈ weeks.'
+};
 
 const tick=()=>new Promise(r=>setTimeout(r,0));
 const b58c=(v,p)=>{const b=concat([new Uint8Array([v])],p);return encodeBase58(concat([b,getBytes(sha256(sha256(b))).slice(0,4)]))};
 const h160=p=>getBytes(ripemd160(sha256(p)));
 const chains=()=>[...document.querySelectorAll('#chains input:checked')].map(c=>c.value);
+const fmt=v=>{try{return Number(v.toPrecision(8)).toString()}catch{return String(v)}};
+
+$('#rpcs').value=DEFAULT_RPC.join('\n');
+$('#words').value=['bitcoin','ethereum','satoshi','nakamoto','password','passphrase','secret','wallet','money','crypto','hodl','test','test123','admin','hello','letmein','qwerty','abc123','123456','12345678','111111','000000','correct horse battery staple','a','aa','aaa','abc','abcd','bitcoin1','btc','eth','1','12','123','1234','12345','satoshi nakamoto','john','jane','michael','alice','bob','max','love','god','family','dragon','monkey','shadow','master','ninja','freedom','football'].join('\n');
 
 function semaphore(max){
   let active=0;const q=[];
   const pump=()=>{while(active<max&&q.length){const j=q.shift();active++;j.fn().then(j.res,j.rej).finally(()=>{active--;pump()})}};
   return fn=>new Promise((res,rej)=>{q.push({fn,res,rej});pump()});
 }
+function paced(ms){
+  if(!ms)return fn=>fn();
+  let last=0,chain=Promise.resolve();
+  return fn=>{
+    const run=chain.then(async()=>{
+      const wait=last+ms-Date.now();
+      if(wait>0)await new Promise(r=>setTimeout(r,wait));
+      last=Date.now();return fn();
+    });
+    chain=run.catch(()=>{});return run;
+  };
+}
+
+function warn(msg){if(!msg){warnEl.style.display='none';return}warnEl.textContent=msg;warnEl.style.display='block'}
 
 function loadTargets(){
   const raw=$('#targets').value.split(/[\s,]+/).map(s=>s.trim()).filter(Boolean);
   targets=new Set();
   for(const t of raw){targets.add(t);targets.add(t.toLowerCase())}
   $('#tcount').textContent=raw.length+' loaded';
+  refreshStart();
 }
 $('#targets').addEventListener('input',loadTargets);
 $('#demo').addEventListener('click',()=>{
   $('#targets').value=['1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH','1CUNEBjYrCn2y1SdiUMohaKUi4wpP326Lb','19ZewH8Kk1PDbSMnJHkBmqyRmxdvSggG6L'].join('\n');
-  $('#strat').value='ints';sync();$('#to').value=50000;loadTargets();
+  $('#strat').value='ints';$('#to').value=50000;sync();loadTargets();
+  warn('');
 });
 
 function sync(){
   const v=$('#strat').value;
   for(const k of ['Ints','Hex','Brain','Mnemonic','Phrase']) $('#p'+k).style.display=v===k.toLowerCase()?'block':'none';
   $('#liveOpts').style.display=$('#live').checked?'flex':'none';
+  $('#stratNote').textContent=STRAT_NOTE[v]||'';
+  if(v==='phrase')$('#phraseHint').textContent='1 blank ≈ 2048 combos (seconds). 2 ≈ 4.2M (about an hour). 3 ≈ 8.6B (weeks).';
+  refreshStart();
+}
+function refreshStart(){
+  if(running)return;
+  const has=targets.size>0||$('#live').checked;
+  $('#start').disabled=!has||!chains().length;
 }
 $('#strat').addEventListener('change',sync);
-$('#live').addEventListener('change',sync);
+$('#live').addEventListener('change',()=>{sync();if($('#live').checked&&!targets.size)warn('Live scanning with no targets sweeps for any funded wallet — hit rate is very low for random keys.');else warn('')});
+$('#chains').addEventListener('change',refreshStart);
+$('#conc').addEventListener('change',refreshStart);
 
 function derive(pk,ch){
-  const o={};
+  const sk=new SigningKey(pk),o={};
   if(ch.includes('evm'))o.evm=computeAddress(pk);
-  if(ch.includes('btc'))o.btc=b58c(0x00,h160(new SigningKey(pk).publicKey));
-  if(ch.includes('tron')){
-    const u=getBytes(computePublicKey(pk,false)).slice(1);
-    o.tron=b58c(0x41,getBytes(keccak256(u)).slice(12));
-  }
+  if(ch.includes('btc'))o.btc=b58c(0x00,h160(sk.compressedPublicKey));
+  if(ch.includes('btcu'))o.btcu=b58c(0x00,h160(sk.publicKey));
+  if(ch.includes('tron')){const u=getBytes(computePublicKey(pk,false)).slice(1);o.tron=b58c(0x41,getBytes(keccak256(u)).slice(12))}
   return o;
 }
 
@@ -183,31 +254,41 @@ async function rpc(url,opts,signal){
     if(!r.ok)return{err:'HTTP '+r.status};
     return{data:await r.json()};
   }catch{
-    return{err:ctl.signal.aborted?'timeout/aborted':'network'};
+    return{err:ctl.signal.aborted?'timeout':'network'};
   }finally{clearTimeout(timer);if(signal)signal.removeEventListener('abort',relay)}
 }
 
-let ethIdx=0;
+let ethIdx=0,btcIdx=0,btcGate=fn=>fn();
 async function balance(chain,addr,signal){
   if(chain==='evm'){
+    const list=$('#rpcs').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    if(!list.length)return{err:'no rpc'};
     let last='no endpoint';
-    for(let k=0;k<RPC_ETH.length;k++){
-      const url=RPC_ETH[(ethIdx+k)%RPC_ETH.length];
+    for(let k=0;k<list.length;k++){
+      const url=list[(ethIdx+k)%list.length];
       const r=await rpc(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_getBalance',params:[addr,'latest']})},signal);
       if(r.err){last=r.err;continue}
       if(r.data.error){last=r.data.error.message;continue}
-      if(r.data.result!==undefined){ethIdx=(ethIdx+k)%RPC_ETH.length;return{v:Number(BigInt(r.data.result))/1e18}}
+      if(r.data.result!==undefined){ethIdx=(ethIdx+k)%list.length;return{v:Number(formatEther(BigInt(r.data.result)))}}
     }
     return{err:last};
   }
-  if(chain==='btc'){
-    const r=await rpc('https://mempool.space/api/address/'+addr,{},signal);
-    if(r.err)return{err:r.err};
-    const s=r.data.chain_stats;
-    return{v:(s.funded_txo_sum-s.spent_txo_sum)/1e8};
+  if(chain==='btc'||chain==='btcu'){
+    for(let k=0;k<BTC_EP.length;k++){
+      const base=BTC_EP[(btcIdx+k)%BTC_EP.length];
+      const r=await btcGate(()=>rpc(base+'/api/address/'+addr,{},signal));
+      if(r.err)continue;
+      const s=r.data&&r.data.chain_stats;
+      if(!s)continue;
+      btcIdx=(btcIdx+k)%BTC_EP.length;
+      return{v:(s.funded_txo_sum-s.spent_txo_sum)/1e8};
+    }
+    return{err:'btc endpoints'};
   }
-  const r=await rpc('https://api.trongrid.io/v1/accounts/'+addr,{},signal);
+  const key=$('#tronkey').value.trim();
+  const r=await rpc('https://api.trongrid.io/v1/accounts/'+addr,{headers:key?{'TRON-PRO-API-KEY':key}:{}},signal);
   if(r.err)return{err:r.err};
+  if(r.data.Error)return{err:'trongrid key required'};
   const d=r.data.data&&r.data.data[0];
   return{v:d?Number(d.balance||0)/1e6:0};
 }
@@ -222,17 +303,30 @@ function line(tag,value,secret){
   r.append(t,c,b);return r;
 }
 
-function addHit(label,addrs,pk,phrase,path,balances){
-  hits++;
+function render(h,prepend){
   const el=document.createElement('div');el.className='hit';
-  el.innerHTML='<div class="hh">hit '+hits+' — '+label+(path?' · '+path:'')+'</div>';
-  for(const[c,a]of Object.entries(addrs)){
-    const bal=balances&&balances[c];
-    el.appendChild(line(TAG[c],a+(bal!=null?'   ['+bal+' funded]':'')));
+  const hh=document.createElement('div');hh.className='hh';
+  const left=document.createElement('span');left.textContent='#'+h.n+' — '+h.label+(h.path?' · '+h.path:'');
+  const ts=document.createElement('span');ts.className='ts';ts.textContent=new Date(h.ts).toLocaleString();
+  hh.append(left,ts);el.appendChild(hh);
+  for(const[c,a]of Object.entries(h.addrs)){
+    const row=line(TAG[c]||c,a);
+    const bal=h.bal&&h.bal[c];
+    if(bal!=null){const s=document.createElement('span');s.className='bal';s.textContent=fmt(bal)+' funded';row.insertBefore(s,row.lastChild)}
+    el.appendChild(row);
   }
-  if(pk)el.appendChild(line('KEY',pk,true));
-  if(phrase)el.appendChild(line('SEED',phrase,true));
-  hitsEl.prepend(el);
+  if(h.pk)el.appendChild(line('KEY',h.pk,true));
+  if(h.phrase)el.appendChild(line('SEED',h.phrase,true));
+  prepend?hitsEl.prepend(el):hitsEl.appendChild(el);
+  return el;
+}
+
+function persist(){
+  try{localStorage.setItem(SK,JSON.stringify(saved.slice(0,300)))}catch{}
+}
+function record(label,addrs,pk,phrase,path,bal){
+  const h={n:saved.length+1,label,addrs,pk,phrase,path,bal,ts:Date.now()};
+  saved.push(h);persist();render(h,true);
 }
 
 $('#reveal').addEventListener('click',()=>{
@@ -240,28 +334,57 @@ $('#reveal').addEventListener('click',()=>{
   document.querySelectorAll('.l.secret code').forEach(c=>{c.textContent=revealed?c.dataset.full:'•'.repeat(28)});
   $('#reveal').textContent=revealed?'Hide keys':'Reveal keys';
 });
+$('#export').addEventListener('click',()=>{
+  if(!saved.length){statusEl.textContent='Nothing to export.';return}
+  const blob=new Blob([JSON.stringify(saved,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='wallet-hunter-'+Date.now()+'.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+});
+$('#clear').onclick=()=>{hitsEl.innerHTML=''};
+$('#clearsaved').onclick=()=>{if(!confirm('Delete saved hits and private keys from this browser?'))return;saved=[];persist();hitsEl.innerHTML='';statusEl.textContent='Saved hits deleted.'};
 
 function*ints(a,b){for(let i=a;i<=b;i++)yield{pk:i.toString(16).padStart(64,'0'),label:'integer '+i}}
 function*hexSrc(t){for(const raw of t.split(/\s+/)){const h=raw.trim().replace(/^0x/,'');if(/^[0-9a-fA-F]{1,64}$/.test(h))yield{pk:h.padStart(64,'0'),label:'hex '+h.slice(-8)}}}
 function*brainSrc(t){for(const w of t.split('\n')){const s=w.replace(/\r$/,'');if(!s)continue;yield{pk:sha256(getBytes(new TextEncoder().encode(s))).slice(2),label:'brain "'+s+'"'}}}
-function*mnSrc(n,w){for(let i=0;i<n;i++){const m=Mnemonic.fromEntropy(randomBytes(w==24?32:16));yield{pk:HDNodeWallet.fromPhrase(m.phrase,'',"m/44'/60'/0'/0/0").privateKey,label:'mnemonic',phrase:m.phrase,path:"m/44'/60'/0'/0/0"}}}
+function*mnSrc(n,w){for(let i=0;i<n;i++){const m=Mnemonic.fromEntropy(randomBytes(w===24?32:16));yield{pk:HDNodeWallet.fromPhrase(m.phrase,'',PATH).privateKey,label:'mnemonic',phrase:m.phrase,path:PATH}}}
+
+let minbalGlobal=0;
+async function checkLive(addrs,limit,signal){
+  const bal={};let flag=false;
+  await Promise.all(Object.entries(addrs).map(async([c,a])=>{
+    const r=await limit(()=>balance(c,a,signal));
+    if(r.err){errs++;consec++;bal[c]=null;return}
+    consec=0;bal[c]=r.v;
+    if(r.v>0&&r.v>=minbalGlobal)flag=true;
+  }));
+  return{bal,flag};
+}
 
 async function run(){
   const ch=chains();
   if(!ch.length){statusEl.textContent='Select a chain.';return}
   loadTargets();
+  if(!targets.size&&!$('#live').checked){statusEl.textContent='Add targets or enable live scanning.';return}
   const strat=$('#strat').value;
   if(strat==='phrase'){await runPhrase(ch);return}
 
   let iter,total=0;
-  if(strat==='ints'){const a=Math.max(1,parseInt($('#from').value)||1),b=parseInt($('#to').value)||a;iter=ints(a,b);total=Math.max(0,b-a+1)}
+  if(strat==='ints'){
+    const a=Math.max(1,parseInt($('#from').value)||1),b=Math.max(a,parseInt($('#to').value)||a);
+    iter=ints(a,b);total=b-a+1;
+    if($('#live').checked&&total>20000&&ch.some(c=>c!=='evm'))warn('Large range with BTC/TRX live scanning — expect multi-day runtime and rate limits.');
+  }
   else if(strat==='hex')iter=hexSrc($('#hexes').value);
   else if(strat==='brain')iter=brainSrc($('#words').value);
   else{const n=Number($('#mcount').value)||300;iter=mnSrc(n,Number($('#mwords').value));total=n}
 
-  const live=$('#live').checked,minbal=Number($('#minbal').value)||0;
+  const live=$('#live').checked;
+  minbalGlobal=Number($('#minbal').value)||0;
   const limit=semaphore(Math.max(1,Math.min(12,Number($('#conc').value)||4)));
-  running=true;tried=0;errs=0;ac=new AbortController();
+  btcGate=paced(Number($('#btcms').value)||0);
+  running=true;tried=0;errs=0;consec=0;ac=new AbortController();
+  revealed=false;$('#reveal').textContent='Reveal keys';
   $('#start').disabled=true;$('#stop').disabled=false;
   const t0=performance.now();
 
@@ -270,76 +393,104 @@ async function run(){
     let addrs;try{addrs=derive(cand.pk,ch)}catch{continue}
     tried++;
 
-    if(targets.size&&Object.values(addrs).some(a=>targets.has(a)||targets.has(a.toLowerCase()))){
-      addHit(cand.label,addrs,cand.pk,cand.phrase,cand.path);
-      statusEl.textContent='target hit on '+cand.label+' after '+tried.toLocaleString();break;
-    }
-
+    const isTarget=targets.size&&Object.values(addrs).some(a=>targets.has(a)||targets.has(a.toLowerCase()));
+    let bal=null,flag=false;
     if(live){
-      const bal={};let flag=false;
-      await Promise.all(Object.entries(addrs).map(async([c,a])=>{
-        const r=await limit(()=>balance(c,a,ac.signal));
-        if(r.err){errs++;bal[c]=null;return}
-        bal[c]=r.v;
-        if(r.v>0&&r.v>=minbal)flag=true;
-      }));
-      if(flag)addHit(cand.label,addrs,cand.pk,cand.phrase,cand.path,bal);
+      const r=await checkLive(addrs,limit,ac.signal);
+      bal=r.bal;flag=r.flag;
     }
+    if(isTarget||flag){
+      record(cand.label+(isTarget?' [target]':''),addrs,cand.pk,cand.phrase,cand.path,bal);
+      if(isTarget&&!live){statusEl.textContent='target hit on '+cand.label+' after '+tried.toLocaleString();break}
+    }
+    if(consec>=MAX_CONSEC){running=false;warn('All endpoints failing ('+errs+' errors). Run stopped — check your RPCs or TronGrid key.');break}
 
     if(tried%(live?5:200)===0){
-      const el=(performance.now()-t0)/1000;
-      statusEl.textContent=tried.toLocaleString()+' tried · '+Math.round(tried/el)+'/s · '+hits+' hits'+(errs?' · '+errs+' rpc errors':'');
+      const el=(performance.now()-t0)/1000,rate=tried/el;
+      statusEl.textContent=tried.toLocaleString()+' tried · '+Math.round(rate)+'/s · '+saved.length+' hits'+(errs?' · '+errs+' rpc errors':'')+(total?' · eta '+eta(total-tried,rate):'');
       if(total)barfill.style.width=Math.min(100,tried/total*100)+'%';
       await tick();
     }
   }
-  statusEl.textContent+=' · done';
-  running=false;$('#start').disabled=false;$('#stop').disabled=true;
+  finish();
+}
+
+function eta(left,rate){
+  if(rate<=0)return '?';
+  const s=left/rate;
+  if(s>86400)return Math.round(s/86400)+'d';
+  if(s>3600)return Math.round(s/3600)+'h';
+  return Math.round(s/60)+'m';
 }
 
 async function runPhrase(ch){
-  const parts=$('#phrase').value.trim().toLowerCase().split(/\s+/);
+  const parts=$('#phrase').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if(!parts.length){statusEl.textContent='Enter a phrase.';return}
   const blanks=parts.map((p,i)=>p==='?'?i:-1).filter(i=>i>=0);
-  if(!blanks.length){statusEl.textContent='Add ? marks.';return}
   if(blanks.length>3){statusEl.textContent='Max 3 unknown words.';return}
-  running=true;tried=0;errs=0;ac=new AbortController();
+
+  const live=$('#live').checked;
+  if(!live&&!targets.size){statusEl.textContent='Phrase mode needs targets or live scanning.';return}
+  minbalGlobal=Number($('#minbal').value)||0;
+  const limit=semaphore(Math.max(1,Math.min(12,Number($('#conc').value)||4)));
+  btcGate=paced(Number($('#btcms').value)||0);
+  running=true;tried=0;errs=0;consec=0;ac=new AbortController();
+  revealed=false;$('#reveal').textContent='Reveal keys';
   $('#start').disabled=true;$('#stop').disabled=false;
-  const total=Math.pow(WL.length,blanks.length),t0=performance.now();
+
+  const n=blanks.length,L=WL.length,total=n?Math.pow(L,n):1,t0=performance.now();
+  const idx=new Array(n).fill(0);
   let valid=0;
 
-  const fill=async d=>{
-    if(!running)return;
-    if(d===blanks.length){
-      const p=parts.join(' ');
-      if(!Mnemonic.isValid(p))return;
+  while(running){
+    for(let d=0;d<n;d++)parts[blanks[d]]=WL[idx[d]];
+    tried++;
+    const p=parts.join(' ');
+    if(Mnemonic.isValid(p)){
       valid++;
-      let pk;try{pk=HDNodeWallet.fromPhrase(p,'',"m/44'/60'/0'/0/0").privateKey}catch{return}
-      const addrs=derive(pk,ch);
-      if(targets.size&&Object.values(addrs).some(a=>targets.has(a)||targets.has(a.toLowerCase()))){
-        addHit('phrase match',addrs,pk,p,"m/44'/60'/0'/0/0");
-        statusEl.textContent='HIT — '+p;running=false;
+      let pk=null;try{pk=HDNodeWallet.fromPhrase(p,'',PATH).privateKey}catch{}
+      if(pk){
+        let addrs;try{addrs=derive(pk,ch)}catch{addrs=null}
+        if(addrs){
+          const isTarget=targets.size&&Object.values(addrs).some(a=>targets.has(a)||targets.has(a.toLowerCase()));
+          let bal=null,flag=false;
+          if(live){const r=await checkLive(addrs,limit,ac.signal);bal=r.bal;flag=r.flag}
+          if(isTarget||flag){
+            record('phrase'+(isTarget?' [target]':''),addrs,pk,p,PATH,bal);
+            if(isTarget&&!live){statusEl.textContent='HIT — '+p;break}
+          }
+        }
       }
-      if(tried%64===0){
-        const el=(performance.now()-t0)/1000,rate=tried/el;
-        const left=rate>0?Math.round((total-tried)/rate):0;
-        statusEl.textContent=tried.toLocaleString()+' combos · '+valid.toLocaleString()+' valid · '+hits+' hits · eta '+(left>3600?Math.round(left/3600)+'h':Math.round(left/60)+'m');
-        barfill.style.width=Math.min(100,tried/total*100)+'%';
-        await tick();
-      }
-      return;
     }
-    for(const w of WL){if(!running)return;parts[blanks[d]]=w;tried++;await fill(d+1);if(!running)return}
-  };
-
-  await fill(0);
-  if(!hits)statusEl.textContent+=' · finished, '+valid.toLocaleString()+' valid phrases';
-  running=false;$('#start').disabled=false;$('#stop').disabled=true;
+    if(!n)break;
+    let d=n-1;
+    while(d>=0){if(++idx[d]<L)break;idx[d]=0;d--}
+    if(d<0)break;
+    if(consec>=MAX_CONSEC){running=false;warn('All endpoints failing. Run stopped.');break}
+    if(tried%32===0){
+      const el=(performance.now()-t0)/1000,rate=tried/el;
+      statusEl.textContent=tried.toLocaleString()+' combos · '+valid.toLocaleString()+' valid · '+saved.length+' hits · eta '+eta(total-tried,rate);
+      barfill.style.width=Math.min(100,tried/total*100)+'%';
+      await tick();
+    }
+  }
+  finish();
 }
 
-$('#start').onclick=()=>{hits=0;hitsEl.innerHTML='';run()};
+function finish(){
+  running=false;
+  if(ac)ac.abort();
+  $('#start').disabled=false;$('#stop').disabled=true;
+  if(!statusEl.textContent.endsWith('done'))statusEl.textContent+=' · done';
+  refreshStart();
+}
+
+$('#start').onclick=()=>{warn('');barfill.style.width='0';run()};
 $('#stop').onclick=()=>{running=false;if(ac)ac.abort();statusEl.textContent='stopped'};
-$('#clear').onclick=()=>{hitsEl.innerHTML='';hits=0};
-sync();loadTargets();
+
+try{saved=JSON.parse(localStorage.getItem(SK)||'[]')}catch{saved=[]}
+if(Array.isArray(saved)&&saved.length){saved.slice().reverse().forEach(h=>render(h,false));statusEl.textContent=saved.length+' saved hits restored.'}
+sync();loadTargets();refreshStart();
 </script>
 </body>
 </html>
