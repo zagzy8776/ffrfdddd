@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>wallet hunter</title>
+<style>
+:root{--fg:#e5e7eb;--bg:#0f1115;--bd:#2a2f3a;--acc:#2563eb;--ok:#16a34a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 Inter,system-ui,sans-serif;padding:24px}
+.wrap{max-width:860px;margin:0 auto}
+h1{font-size:19px;font-weight:500;margin:0 0 4px}
+.sub{font-size:12px;opacity:.55;margin-bottom:18px}
+.panel{border:1px solid var(--bd);border-radius:10px;padding:14px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.f{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.f label{font-size:12px;opacity:.7}
+.chips{display:flex;gap:6px}
+.chip{display:flex;align-items:center;gap:6px;font-size:13px;padding:7px 9px;border:1px solid var(--bd);border-radius:8px;cursor:pointer}
+select,input,textarea{background:#161a21;color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:8px 9px;font:inherit;font-size:14px;outline:none}
+textarea{font-family:ui-monospace,Menlo,monospace;font-size:12px;resize:vertical}
+select:focus,input:focus,textarea:focus{border-color:var(--acc)}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+button{font:inherit;font-size:13px;font-weight:500;padding:8px 13px;border-radius:8px;border:1px solid var(--bd);background:transparent;color:var(--fg);cursor:pointer}
+button.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+button:disabled{opacity:.45;cursor:default}
+.tiny{font-size:11px;padding:3px 9px}
+.bar{height:3px;background:var(--bd);border-radius:2px;overflow:hidden;margin-bottom:8px}
+#barfill{height:100%;width:0;background:var(--acc);transition:width .15s linear}
+.status{font-size:12px;opacity:.7;font-family:ui-monospace,Menlo,monospace;min-height:16px}
+.out{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.hit{border:1px solid var(--ok);border-radius:9px;padding:11px}
+.hit .hh{font-size:11px;color:var(--ok);font-weight:500;margin-bottom:7px}
+.l{display:flex;align-items:center;gap:8px;padding:2px 0}
+.l .t{font-size:10px;width:46px;text-align:center;flex:none;border:1px solid var(--bd);border-radius:5px;padding:2px 4px;opacity:.8}
+.l code{font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all;flex:1}
+.l button{font-size:11px;padding:3px 8px;flex:none}
+.foot{font-size:11px;opacity:.5;line-height:1.6;margin-top:16px}
+@media(max-width:560px){.g2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>wallet hunter</h1>
+<div class="sub">Derive candidate keys locally, match against target addresses, or scan for funded wallets over RPC.</div>
+
+<div class="panel">
+  <div class="g2">
+    <div class="f">
+      <label for="strat">Strategy</label>
+      <select id="strat">
+        <option value="ints">Small integer keys</option>
+        <option value="hex">Candidate hex keys</option>
+        <option value="brain">Brain wallets from words</option>
+        <option value="mnemonic">Random mnemonic blast</option>
+        <option value="phrase">Partial seed phrase</option>
+      </select>
+    </div>
+    <div class="f">
+      <label>Chains</label>
+      <div class="chips" id="chains">
+        <label class="chip"><input type="checkbox" value="evm" checked><span>EVM</span></label>
+        <label class="chip"><input type="checkbox" value="btc" checked><span>BTC</span></label>
+        <label class="chip"><input type="checkbox" value="tron"><span>TRX</span></label>
+      </div>
+    </div>
+  </div>
+
+  <div class="f">
+    <label for="targets">Target addresses, one per line</label>
+    <textarea id="targets" rows="3" spellcheck="false" placeholder="0x... or 1..."></textarea>
+    <div><button id="demo" class="tiny">Load demo targets</button> <span class="status" id="tcount">0 loaded</span></div>
+  </div>
+
+  <div class="f" id="pInts"><div class="g2">
+    <div class="f"><label for="from">From key</label><input id="from" type="number" value="1" min="1"></div>
+    <div class="f"><label for="to">To key</label><input id="to" type="number" value="200000" min="1"></div>
+  </div></div>
+
+  <div class="f" id="pHex" style="display:none">
+    <label for="hexes">Hex private keys</label>
+    <textarea id="hexes" rows="4" spellcheck="false"></textarea>
+  </div>
+
+  <div class="f" id="pBrain" style="display:none">
+    <label for="words">Words, names, passwords, PINs</label>
+    <textarea id="words" rows="6" spellcheck="false"></textarea>
+  </div>
+
+  <div class="f" id="pMnemonic" style="display:none"><div class="g2">
+    <div class="f"><label for="mcount">How many</label><input id="mcount" type="number" value="300" min="1"></div>
+    <div class="f"><label for="mwords">Words</label><select id="mwords"><option>12</option><option>24</option></select></div>
+  </div></div>
+
+  <div class="f" id="pPhrase" style="display:none">
+    <label for="phrase">Phrase with ? for unknown words</label>
+    <textarea id="phrase" rows="2" spellcheck="false" placeholder="abandon ? ? ? ? ? ? ? ? ? ? about"></textarea>
+  </div>
+
+  <div class="f">
+    <label class="chip" style="align-self:flex-start"><input type="checkbox" id="live"><span>Scan balances live (slow, needs network)</span></label>
+    <div class="f" id="liveOpts" style="display:none">
+      <label for="minbal">Flag if balance ≥ (native units)</label><input id="minbal" value="0">
+    </div>
+  </div>
+
+  <div class="acts">
+    <button id="start" class="primary">Start</button>
+    <button id="stop" disabled>Stop</button>
+    <button id="clear">Clear</button>
+  </div>
+  <div class="bar"><div id="barfill"></div></div>
+  <div class="status" id="status">Idle.</div>
+</div>
+
+<div id="hits" class="out"></div>
+<div class="foot">Keys are generated in your browser. Local matching is instant; balance scanning is rate-limited by public RPC nodes. Verify before funding.</div>
+</div>
+
+<script type="module">
+import{SigningKey,computeAddress,Mnemonic,randomBytes,wordlists,sha256,ripemd160,encodeBase58,getBytes,concat,HDNodeWallet}from'https://esm.sh/ethers@6.13.4';
+const $=s=>document.querySelector(s),statusEl=$('#status'),hitsEl=$('#hits'),barfill=$('#barfill');
+const WL=wordlists.en.getWords(),TAG={evm:'EVM',btc:'BTC',tron:'TRX'};
+const RPC_ETH=['https://cloudflare-eth.com','https://rpc.publicnode.com','https://eth.llamarpc.com'];
+let running=false,tried=0,hits=0,targets=new Set();
+
+$('#words').value=['bitcoin','ethereum','satoshi','nakamoto','password','passphrase','secret','wallet','money','crypto','hodl','test','test123','admin','hello','letmein','qwerty','abc123','123456','12345678','111111','000000','correct horse battery staple','a','aa','aaa','abc','abcd','bitcoin1','btc','eth','1','12','123','1234','12345','satoshi nakamoto','john','jane','michael','alice','bob','max','love','god','family','dragon','monkey','shadow','master','ninja','freedom','football'].join('\n');
+
+const tick=()=>new Promise(r=>setTimeout(r,0));
+const b58c=(v,p)=>{const b=concat([new Uint8Array([v])],p);return encodeBase58(concat([b,getBytes(sha256(sha256(b))).slice(0,4)]))};
+const h160=p=>getBytes(ripemd160(sha256(p)));
+const chains=()=>[...document.querySelectorAll('#chains input:checked')].map(c=>c.value);
+
+function loadTargets(){
+  const raw=$('#targets').value.split(/[\s,]+/).map(s=>s.trim()).filter(Boolean);
+  targets=new Set();
+  for(const t of raw){targets.add(t);targets.add(t.toLowerCase())}
+  $('#tcount').textContent=raw.length+' loaded';
+}
+$('#targets').addEventListener('input',loadTargets);
+$('#demo').addEventListener('click',()=>{
+  $('#targets').value=['1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH','1CUNEBjYrCn2y1SdiUMohaKUi4wpP326Lb','19ZewH8Kk1PDbSMnJHkBmqyRmxdvSggG6L'].join('\n');
+  $('#strat').value='ints';sync();$('#to').value=50000;loadTargets();
+});
+
+function sync(){
+  const v=$('#strat').value;
+  for(const k of ['Ints','Hex','Brain','Mnemonic','Phrase']) $('#p'+k).style.display=v===k.toLowerCase()?'block':'none';
+  $('#liveOpts').style.display=$('#live').checked?'flex':'none';
+}
+$('#strat').addEventListener('change',sync);
+$('#live').addEventListener('change',sync);
+
+function derive(pk,ch){
+  const pub=new SigningKey(pk).publicKey,o={};
+  if(ch.includes('evm'))o.evm=computeAddress(pk);
+  if(ch.includes('btc'))o.btc=b58c(0x00,h160(pub));
+  if(ch.includes('tron'))o.tron=b58c(0x41,h160(pub));
+  return o;
+}
+
+let ethIdx=0;
+async function balance(chain,addr){
+  try{
+    if(chain==='evm'){
+      for(let k=0;k<RPC_ETH.length;k++){
+        const url=RPC_ETH[(ethIdx+k)%RPC_ETH.length];
+        const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_getBalance',params:[addr,'latest']})});
+        const j=await r.json();
+        if(j.result!==undefined){ethIdx=(ethIdx+k)%RPC_ETH.length;return Number(BigInt(j.result))/1e18}
+      }
+      return null;
+    }
+    if(chain==='btc'){
+      const r=await fetch('https://mempool.space/api/address/'+addr);
+      if(!r.ok)return null;
+      const j=await r.json();
+      return (j.chain_stats.funded_txo_sum-j.chain_stats.spent_txo_sum)/1e8;
+    }
+    if(chain==='tron'){
+      const r=await fetch('https://api.trongrid.io/v1/accounts/'+addr);
+      if(!r.ok)return null;
+      const j=await r.json();
+      const d=j.data&&j.data[0];
+      return d?Number(d.balance||0)/1e6:0;
+    }
+  }catch{return null}
+  return null;
+}
+
+function line(tag,value){
+  const r=document.createElement('div');r.className='l';
+  const t=document.createElement('span');t.className='t';t.textContent=tag;
+  const c=document.createElement('code');c.textContent=value;
+  const b=document.createElement('button');b.textContent='Copy';
+  b.onclick=async()=>{try{await navigator.clipboard.writeText(value)}catch{}b.textContent='Copied';setTimeout(()=>b.textContent='Copy',1000)};
+  r.append(t,c,b);return r;
+}
+
+function addHit(label,addrs,pk,phrase,path,balances){
+  hits++;
+  const el=document.createElement('div');el.className='hit';
+  el.innerHTML='<div class="hh">hit '+hits+' — '+label+(path?' · '+path:'')+'</div>';
+  for(const[c,a]of Object.entries(addrs)){
+    const bal=balances&&balances[c];
+    el.appendChild(line(TAG[c],a+(bal!=null?'   ['+bal+' funded]':'')));
+  }
+  if(pk)el.appendChild(line('KEY',pk));
+  if(phrase)el.appendChild(line('SEED',phrase));
+  hitsEl.prepend(el);
+}
+
+function*ints(a,b){for(let i=a;i<=b;i++)yield{pk:i.toString(16).padStart(64,'0'),label:'integer '+i}}
+function*hexSrc(t){for(const raw of t.split(/\s+/)){const h=raw.trim().replace(/^0x/,'');if(/^[0-9a-fA-F]{1,64}$/.test(h))yield{pk:h.padStart(64,'0'),label:'hex '+h.slice(-8)}}}
+function*brainSrc(t){for(const w of t.split('\n')){const s=w.replace(/\r$/,'');if(!s)continue;yield{pk:sha256(getBytes(new TextEncoder().encode(s))).slice(2),label:'brain "'+s+'"'}}}
+function*mnSrc(n,w){for(let i=0;i<n;i++){const m=Mnemonic.fromEntropy(randomBytes(w==24?32:16));yield{pk:HDNodeWallet.fromPhrase(m.phrase,'',"m/44'/60'/0'/0/0").privateKey,label:'mnemonic',phrase:m.phrase,path:"m/44'/60'/0'/0/0"}}}
+
+async function run(){
+  const ch=chains();
+  if(!ch.length){statusEl.textContent='Select a chain.';return}
+  loadTargets();
+  const strat=$('#strat').value;
+  if(strat==='phrase'){await runPhrase(ch);return}
+
+  let iter,total=0;
+  if(strat==='ints'){const a=Math.max(1,parseInt($('#from').value)||1),b=parseInt($('#to').value)||a;iter=ints(a,b);total=Math.max(0,b-a+1)}
+  else if(strat==='hex')iter=hexSrc($('#hexes').value);
+  else if(strat==='brain')iter=brainSrc($('#words').value);
+  else{const n=Number($('#mcount').value)||300;iter=mnSrc(n,Number($('#mwords').value));total=n}
+
+  const live=$('#live').checked,minbal=Number($('#minbal').value)||0;
+  running=true;tried=0;
+  $('#start').disabled=true;$('#stop').disabled=false;
+  const t0=performance.now();
+
+  for(const cand of iter){
+    if(!running)break;
+    let addrs;try{addrs=derive(cand.pk,ch)}catch{continue}
+    tried++;
+
+    if(targets.size&&Object.values(addrs).some(a=>targets.has(a)||targets.has(a.toLowerCase()))){
+      addHit(cand.label,addrs,cand.pk,cand.phrase,cand.path);statusEl.textContent='target hit on '+cand.label+' after '+tried.toLocaleString();break;
+    }
+
+    if(live){
+      const bal={};let flag=false;
+      await Promise.all(Object.entries(addrs).map(async([c,a])=>{
+        const b=await balance(c,a);bal[c]=b;
+        if(b!=null&&b>0&&b>=minbal)flag=true;
+      }));
+      if(flag)addHit(cand.label,addrs,cand.pk,cand.phrase,cand.path,bal);
+    }
+
+    if(tried%10===0||!live){
+      const rate=Math.round(tried/((performance.now()-t0)/1000));
+      statusEl.textContent=tried.toLocaleString()+' tried · '+rate+'/s · '+hits+' hits';
+      if(total)barfill.style.width=Math.min(100,tried/total*100)+'%';
+      await tick();
+    }
+  }
+  statusEl.textContent+=' · done';
+  running=false;$('#start').disabled=false;$('#stop').disabled=true;
+}
+
+async function runPhrase(ch){
+  const parts=$('#phrase').value.trim().toLowerCase().split(/\s+/);
+  const blanks=parts.map((p,i)=>p==='?'?i:-1).filter(i=>i>=0);
+  if(!blanks.length){statusEl.textContent='Add ? marks.';return}
+  if(blanks.length>3){statusEl.textContent='Max 3 unknown words.';return}
+  running=true;tried=0;
+  $('#start').disabled=true;$('#stop').disabled=false;
+  let valid=0;
+  const fill=async d=>{
+    if(!running)return;
+    if(d===blanks.length){
+      const p=parts.join(' ');
+      if(!Mnemonic.isValid(p))return;
+      valid++;
+      let pk;try{pk=HDNodeWallet.fromPhrase(p,'',"m/44'/60'/0'/0/0").privateKey}catch{return}
+      const addrs=derive(pk,ch);
+      if(targets.size&&Object.values(addrs).some(a=>targets.has(a)||targets.has(a.toLowerCase()))){addHit('phrase match',addrs,pk,p,"m/44'/60'/0'/0/0");statusEl.textContent='HIT — '+p;running=false}
+      if(tried%20===0){statusEl.textContent=tried.toLocaleString()+' combos · '+valid.toLocaleString()+' valid · '+hits+' hits';await tick()}
+      return;
+    }
+    for(const w of WL){if(!running)return;parts[blanks[d]]=w;tried++;await fill(d+1);if(!running)return}
+  };
+  await fill(0);
+  statusEl.textContent='done — '+valid.toLocaleString()+' valid phrases';
+  running=false;$('#start').disabled=false;$('#stop').disabled=true;
+}
+
+$('#start').onclick=()=>{hits=0;hitsEl.innerHTML='';run()};
+$('#stop').onclick=()=>running=false;
+$('#clear').onclick=()=>{hitsEl.innerHTML='';hits=0};
+sync();loadTargets();
+</script>
+</body>
+</html>
