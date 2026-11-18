@@ -45,6 +45,8 @@ details{border:1px solid var(--bd);border-radius:8px;padding:8px 10px;margin-bot
 summary{font-size:12px;opacity:.7;cursor:pointer}
 details .f:first-of-type{margin-top:10px}
 .note{font-size:11px;opacity:.55;line-height:1.5}
+#storeState{font-size:11px}
+#testout{font-size:11px;font-family:ui-monospace,Menlo,monospace;margin-top:8px}
 @media(max-width:560px){.g2{grid-template-columns:1fr}}
 </style>
 </head>
@@ -146,16 +148,30 @@ details .f:first-of-type{margin-top:10px}
     </div>
   </details>
 
-  <details>
+  <details open>
     <summary>Storage &amp; export</summary>
     <div class="f">
-      <label class="chip" style="align-self:flex-start"><input type="checkbox" id="remember" checked><span>Remember hits on this device</span></label>
-      <div class="note">Stored in localStorage. Unencrypted unless you set a passphrase.</div>
+      <label for="store">Saved hits</label>
+      <select id="store">
+        <option value="enc" selected>Encrypted — requires passphrase</option>
+        <option value="plain">Plaintext — no passphrase, keys in the clear</option>
+        <option value="off">Don't save</option>
+      </select>
+      <div id="storeState"></div>
     </div>
     <div class="f">
       <label for="pass">Passphrase (encrypts saved hits and exports)</label>
-      <input id="pass" type="password" placeholder="leave blank for plaintext">
-      <div class="note">AES-GCM, PBKDF2-SHA256 250k rounds. Nothing is stored until you set it and hit Start or Export.</div>
+      <input id="pass" type="password" placeholder="8+ characters">
+      <div class="note">AES-GCM 256, PBKDF2-SHA256 250k rounds. In encrypted mode nothing is written until a valid passphrase exists.</div>
+    </div>
+  </details>
+
+  <details>
+    <summary>Self-test</summary>
+    <div class="f">
+      <button id="selftest" class="tiny">Run self-test</button>
+      <div class="note">Checks derivation against published vectors, error classification, cancellation status, and encryption. Uses a mocked fetch — no network needed.</div>
+      <div id="testout"></div>
     </div>
   </details>
 
@@ -172,19 +188,20 @@ details .f:first-of-type{margin-top:10px}
 </div>
 
 <div id="hits" class="out"></div>
-<div class="foot">Keys are generated in your browser and never transmitted. Saved hits contain private keys — set a passphrase or treat the browser as hot. Verify before funding.</div>
+<div class="foot">Keys are generated in your browser and never transmitted. In plaintext mode the saved hits are readable by any script on this origin. Verify before funding.</div>
 </div>
 
 <script type="module">
 /* ethers pinned: 6.13.4 */
 import{SigningKey,computeAddress,computePublicKey,keccak256,Mnemonic,randomBytes,wordlists,sha256,ripemd160,encodeBase58,getBytes,concat,HDNodeWallet,formatEther}from'https://esm.sh/ethers@6.13.4';
-const $=s=>document.querySelector(s),statusEl=$('#status'),hitsEl=$('#hits'),barfill=$('#barfill'),warnEl=$('#warn'),lockEl=$('#lockbar');
+const $=s=>document.querySelector(s),statusEl=$('#status'),hitsEl=$('#hits'),barfill=$('#barfill'),warnEl=$('#warn'),lockEl=$('#lockbar'),storeState=$('#storeState');
 const WL=wordlists.en.getWords(),TAG={evm:'EVM',btc:'BTC',btcw:'BTCs',btcu:'BTCu',tron:'TRX'};
 const PATHS={evm:"m/44'/60'/0'/0/0",btc:"m/44'/0'/0'/0/0",btcw:"m/84'/0'/0'/0/0",btcu:"m/44'/0'/0'/0/0",tron:"m/44'/195'/0'/0/0"};
 const DEFAULT_RPC=['https://ethereum-rpc.publicnode.com','https://eth.llamarpc.com','https://eth.drpc.org','https://1rpc.io/eth'];
 const BTC_EP=['https://mempool.space','https://blockstream.info'];
-const TIMEOUT=8000,SK='wh.hits.v1',SK_ENC='wh.hits.enc',MAX_CONSEC=40,MAX_SAFE=Number.MAX_SAFE_INTEGER;
-let running=false,tried=0,errs=0,consec=0,targets=new Set(),ac=null,revealed=false,saved=[],encBlob=null;
+let TIMEOUT=8000;
+const SK='wh.hits.v1',SK_ENC='wh.hits.enc',MAX_CONSEC=40,MIN_PASS=8,MAX_SAFE=Number.MAX_SAFE_INTEGER;
+let running=false,tried=0,errs=0,consec=0,targets=new Set(),ac=null,revealed=false,saved=[],encBlob=null,stopReason=null;
 
 const STRAT_NOTE={
   ints:'Keys 1–1000 are old puzzle addresses and long spent. Beyond ~50k expect dust or nothing.',
@@ -250,18 +267,29 @@ async function open_(blob,pass){
   const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:ub64(blob.iv)},k,ub64(blob.ct));
   return JSON.parse(dec.decode(pt));
 }
+function wipe(){try{localStorage.removeItem(SK);localStorage.removeItem(SK_ENC)}catch{}}
+
 async function persist(){
-  if(!$('#remember').checked){try{localStorage.removeItem(SK);localStorage.removeItem(SK_ENC)}catch{}return}
+  const mode=$('#store').value;
+  if(mode==='off'){wipe();storeState.textContent='Not saving.';storeState.style.color='';return}
+  if(mode==='plain'){
+    try{localStorage.setItem(SK,JSON.stringify(saved.slice(-300)));localStorage.removeItem(SK_ENC)}catch{}
+    storeState.textContent='Saved unencrypted — '+saved.length+' hit(s) readable in localStorage.';
+    storeState.style.color='#f59e0b';
+    return;
+  }
   const pass=$('#pass').value;
+  if(pass.length<MIN_PASS){
+    storeState.textContent='No passphrase ('+pass.length+'/'+MIN_PASS+') — hits are NOT being saved.';
+    storeState.style.color='#ef4444';
+    return;
+  }
   try{
-    if(pass){
-      localStorage.setItem(SK_ENC,JSON.stringify(await seal(saved.slice(-300),pass)));
-      localStorage.removeItem(SK);
-    }else{
-      localStorage.setItem(SK,JSON.stringify(saved.slice(-300)));
-      localStorage.removeItem(SK_ENC);
-    }
-  }catch{}
+    localStorage.setItem(SK_ENC,JSON.stringify(await seal(saved.slice(-300),pass)));
+    localStorage.removeItem(SK);
+    storeState.textContent='Saved encrypted — '+saved.length+' hit(s).';
+    storeState.style.color='#16a34a';
+  }catch{storeState.textContent='Save failed.';storeState.style.color='#ef4444'}
 }
 
 /* --- targets / ui --- */
@@ -294,7 +322,7 @@ function refreshStart(){
 $('#strat').addEventListener('change',sync);
 $('#live').addEventListener('change',()=>{sync();if($('#live').checked&&!targets.size)warn('Live scanning with no targets sweeps for any funded wallet — hit rate is very low for random keys.');else warn('')});
 $('#chains').addEventListener('change',refreshStart);
-$('#remember').addEventListener('change',persist);
+$('#store').addEventListener('change',persist);
 $('#pass').addEventListener('change',persist);
 
 /* --- derivation --- */
@@ -309,19 +337,21 @@ function addrsFor(c,ch){
   return o;
 }
 
-/* --- rpc --- */
+/* --- rpc: abort vs timeout vs network --- */
 async function rpc(url,opts,signal){
   const ctl=new AbortController();
-  let timedOut=false;
-  const relay=()=>ctl.abort();
-  if(signal){signal.aborted?ctl.abort():signal.addEventListener('abort',relay)}
+  let timedOut=false,cancelled=false;
+  const relay=()=>{cancelled=true;ctl.abort()};
+  if(signal){signal.aborted?relay():signal.addEventListener('abort',relay)}
   const timer=setTimeout(()=>{timedOut=true;ctl.abort()},TIMEOUT);
   try{
     const r=await fetch(url,{...opts,signal:ctl.signal});
     if(!r.ok)return{err:'HTTP '+r.status};
     return{data:await r.json()};
-  }catch{
-    return timedOut?{err:'timeout'}:{err:'aborted',abort:true};
+  }catch(e){
+    if(timedOut)return{err:'timeout'};
+    if(cancelled)return{err:'aborted',abort:true};
+    return{err:'network',network:true,msg:e&&e.message};
   }finally{clearTimeout(timer);if(signal)signal.removeEventListener('abort',relay)}
 }
 
@@ -335,7 +365,7 @@ async function balance(chain,addr,signal){
       const url=list[(ethIdx+k)%list.length];
       const r=await rpc(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_getBalance',params:[addr,'latest']})},signal);
       if(r.abort)return r;
-      if(r.err){last=r.err;continue}
+      if(r.err){last=r.msg?r.err+': '+r.msg:r.err;continue}
       if(r.data.error){last=r.data.error.message;continue}
       if(r.data.result!==undefined){ethIdx=(ethIdx+k)%list.length;return{v:Number(formatEther(BigInt(r.data.result)))}}
     }
@@ -434,17 +464,27 @@ function progress(total,t0){
   statusEl.textContent=tried.toLocaleString()+' tried · '+Math.round(rate)+'/s · '+saved.length+' hits'+(errs?' · '+errs+' rpc errors':'')+(total?' · eta '+eta(total-tried,rate):'');
   if(total)barfill.style.width=Math.min(100,tried/total*100)+'%';
 }
+
 function finish(){
   running=false;
   if(ac)ac.abort();
   $('#start').disabled=false;$('#stop').disabled=true;
-  if(!statusEl.textContent.endsWith('done'))statusEl.textContent+=' · done';
+  if(stopReason==='stopped'){
+    statusEl.textContent='stopped after '+tried.toLocaleString()+' · '+saved.length+' hits';
+  }else if(stopReason==='failed'){
+    statusEl.textContent='stopped after '+tried.toLocaleString()+' · '+errs+' errors';
+  }else if(stopReason==='hit'){
+    /* status already holds the hit message */
+  }else{
+    statusEl.textContent+=' · done';
+  }
+  stopReason=null;
   refreshStart();
 }
 function begin(){
   revealed=false;$('#reveal').textContent='Reveal keys';
   $('#start').disabled=true;$('#stop').disabled=false;
-  running=true;tried=0;errs=0;consec=0;ac=new AbortController();
+  running=true;tried=0;errs=0;consec=0;stopReason=null;ac=new AbortController();
   btcGate=paced(Number($('#btcms').value)||0);
   minbalGlobal=Number($('#minbal').value)||0;
 }
@@ -490,7 +530,7 @@ async function run(){
       let addrs;try{addrs=addrsFor(c,ch)}catch{continue}
       tried++;
       const isT=targets.size&&Object.values(addrs).some(a=>targets.has(a)||targets.has(a.toLowerCase()));
-      if(isT&&!live){record(c.label+' [target]',addrs,c.pk,c.phrase,null,null);running=false;statusEl.textContent='target hit on '+c.label+' after '+tried.toLocaleString();break}
+      if(isT&&!live){record(c.label+' [target]',addrs,c.pk,c.phrase,null,null);stopReason='hit';running=false;statusEl.textContent='target hit on '+c.label+' after '+tried.toLocaleString();break}
       if(live)jobs.push({c,addrs,isT});
     }
 
@@ -501,14 +541,14 @@ async function run(){
       }));
     }
 
-    if(consec>=MAX_CONSEC){running=false;warn('All endpoints failing ('+errs+' errors). Run stopped — check your RPCs or TronGrid key.');break}
+    if(consec>=MAX_CONSEC){stopReason='failed';running=false;warn('All endpoints failing ('+errs+' errors). Run stopped — check your RPCs or TronGrid key.');break}
     progress(total,t0);
     await tick();
   }
   finish();
 }
 
-/* --- phrase loop: batched on valid only --- */
+/* --- phrase loop --- */
 async function runPhrase(ch){
   const parts=$('#phrase').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if(!parts.length){statusEl.textContent='Enter a phrase.';return}
@@ -545,7 +585,7 @@ async function runPhrase(ch){
         if(addrs){
           const isT=targets.size&&Object.values(addrs).some(a=>targets.has(a)||targets.has(a.toLowerCase()));
           const paths=Object.keys(addrs).map(c=>PATHS[c]).filter((v,i,a)=>a.indexOf(v)===i).join(' ');
-          if(isT&&!live){record('phrase [target]',addrs,null,p,paths,null);statusEl.textContent='HIT — '+p;break}
+          if(isT&&!live){record('phrase [target]',addrs,null,p,paths,null);stopReason='hit';statusEl.textContent='HIT — '+p;break}
           if(live)pending.push({addrs,isT,pk:null,p,paths});
         }
       }
@@ -555,7 +595,7 @@ async function runPhrase(ch){
     while(d>=0){if(++idx[d]<L)break;idx[d]=0;d--}
     if(d<0)break;
     if(pending.length>=32)await flush();
-    if(consec>=MAX_CONSEC){running=false;warn('All endpoints failing. Run stopped.');break}
+    if(consec>=MAX_CONSEC){stopReason='failed';running=false;warn('All endpoints failing. Run stopped.');break}
     if(tried%32===0){
       const el=(performance.now()-t0)/1000,rate=tried/el;
       statusEl.textContent=tried.toLocaleString()+' combos · '+valid.toLocaleString()+' valid · '+saved.length+' hits · eta '+eta(total-tried,rate);
@@ -577,22 +617,22 @@ $('#export').addEventListener('click',async()=>{
   if(!saved.length){statusEl.textContent='Nothing to export.';return}
   const pass=$('#pass').value;
   let text,ext;
-  if(pass){
+  if(pass.length>=MIN_PASS){
     try{text=JSON.stringify(await seal(saved,pass),null,2);ext='json.enc'}
     catch{statusEl.textContent='Encryption failed.';return}
   }else{
     text=JSON.stringify(saved,null,2);ext='json';
+    warn('Exported in plaintext — set an 8+ character passphrase to encrypt exports.');
   }
   const blob=new Blob([text],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download='wallet-hunter-'+Date.now()+'.'+ext;a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),2000);
-  if(!pass)warn('Exported in plaintext — private keys in the clear.');
 });
 $('#clear').onclick=()=>{hitsEl.innerHTML=''};
-$('#clearsaved').onclick=()=>{if(!confirm('Delete saved hits and private keys?'))return;saved=[];encBlob=null;try{localStorage.removeItem(SK);localStorage.removeItem(SK_ENC)}catch{}hitsEl.innerHTML='';statusEl.textContent='Saved hits deleted.'};
+$('#clearsaved').onclick=()=>{if(!confirm('Delete saved hits and private keys?'))return;saved=[];encBlob=null;wipe();hitsEl.innerHTML='';statusEl.textContent='Saved hits deleted.'};
 $('#start').onclick=()=>{warn('');barfill.style.width='0';run()};
-$('#stop').onclick=()=>{running=false;if(ac)ac.abort();statusEl.textContent='stopped'};
+$('#stop').onclick=()=>{stopReason='stopped';running=false;if(ac)ac.abort();statusEl.textContent='stopping…'};
 
 $('#unlock').onclick=async()=>{
   const pass=$('#unlockpass').value;
@@ -603,7 +643,108 @@ $('#unlock').onclick=async()=>{
     lockEl.style.display='none';
     hitsEl.innerHTML='';saved.forEach(h=>render(h,false));
     statusEl.textContent=saved.length+' encrypted hits unlocked.';
+    persist();
   }catch{statusEl.textContent='Wrong passphrase.'}
+};
+
+/* --- self-test --- */
+$('#selftest').onclick=async()=>{
+  const out=$('#testout'),R=[];
+  const t=async(n,fn)=>{try{const m=await fn();R.push([!!m.ok,n,m.detail||''])}catch(e){R.push([false,n,e.message])}};
+  const eq=(a,b)=>({ok:a===b,detail:a===b?'':'got '+a+' want '+b});
+  const real=window.fetch;
+  const k1='0x'+'1'.padStart(64,'0');
+  const PHRASE='abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+  const root=HDNodeWallet.fromPhrase(PHRASE,'');
+
+  await t('bech32 matches BIP173 vector',()=>eq(bech32('bc',[0,...cvBits(getBytes('0x751e76e8199196d454941c45d1b3a323f1433bd6'),8,5,true)]),'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4'));
+  await t('key 1 compressed address',()=>eq(addrsFor({pk:k1},['btc']).btc,'1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH'));
+  await t('key 1 legacy address',()=>eq(addrsFor({pk:k1},['btcu']).btcu,'1EHNa6Q4Jz2uvNExL497mE43ikXhwF6kZm'));
+  await t('key 1 EVM address',()=>eq(addrsFor({pk:k1},['evm']).evm,'0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf'));
+  await t('BIP39 EVM path',()=>eq(addrsFor({root},['evm']).evm,'0x9858EfFD232B4033E47d90003D41EC34EcaEda94'));
+  await t('BIP39 BTC path',()=>eq(addrsFor({root},['btc']).btc,'1LqBGSKuX5yYUonjxT5qGfpUsXKYYWeabA'));
+  await t('BIP39 segwit path',()=>eq(addrsFor({root},['btcw']).btcw,'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu'));
+  await t('paths diverge per chain',()=>{const a=root.derivePath(PATHS.evm).privateKey,b=root.derivePath(PATHS.btc).privateKey;return{ok:a!==b,detail:a===b?'identical':'divergent'}});
+
+  await t('network failure classified as network',async()=>{
+    window.fetch=()=>Promise.reject(new TypeError('boom'));
+    const r=await rpc('http://x',{});
+    return{ok:r.err==='network'&&!r.abort,detail:'err='+r.err};
+  });
+  await t('network failure increments error counter',async()=>{
+    const before=errs;const addrs={evm:'0x0'};
+    $('#rpcs').value='http://x';$('#conc').value='1';
+    const lim=semaphore(1);consec=0;
+    await checkLive(addrs,lim,null);
+    return{ok:errs===before+1&&consec===1,detail:'errs +'+(errs-before)};
+  });
+  await t('intentional abort flagged, not counted',async()=>{
+    const ctl=new AbortController();ctl.abort();
+    const r=await rpc('http://x',{},ctl.signal);
+    return{ok:r.abort===true&&r.err==='aborted',detail:'err='+r.err};
+  });
+  await t('timeout flagged distinctly',async()=>{
+    TIMEOUT=40;window.fetch=()=>new Promise(()=>{});
+    const r=await rpc('http://x',{});
+    TIMEOUT=8000;window.fetch=real;
+    return{ok:r.err==='timeout'&&!r.abort,detail:'err='+r.err};
+  });
+
+  await t('batch reaches concurrency cap',async()=>{
+    let active=0,max=0;const lim=semaphore(8);
+    const w=()=>new Promise(res=>{active++;max=Math.max(max,active);setTimeout(()=>{active--;res()},3)});
+    await Promise.all(Array.from({length:120},()=>lim(w)));
+    return{ok:max===8,detail:'peak '+max};
+  });
+
+  await t('Stop status does not say done',()=>{
+    stopReason='stopped';tried=99;saved=[];statusEl.textContent='stopping…';
+    finish();
+    return{ok:statusEl.textContent.startsWith('stopped')&&!statusEl.textContent.includes('done'),detail:statusEl.textContent};
+  });
+  await t('natural finish says done',()=>{
+    stopReason=null;statusEl.textContent='running';finish();
+    return{ok:statusEl.textContent.endsWith('done'),detail:statusEl.textContent};
+  });
+  await t('hit finish keeps hit message',()=>{
+    stopReason='hit';statusEl.textContent='target hit on integer 1';finish();
+    return{ok:statusEl.textContent==='target hit on integer 1',detail:statusEl.textContent};
+  });
+
+  await t('encrypted mode refuses without passphrase',async()=>{
+    const keepS=saved,keepP=$('#pass').value,keepM=$('#store').value;
+    wipe();saved=[{n:1,pk:'0xabc'}];
+    $('#store').value='enc';$('#pass').value='';
+    await persist();
+    const noSave=!localStorage.getItem(SK)&&!localStorage.getItem(SK_ENC);
+    $('#pass').value='longenough';
+    await persist();
+    const encOnly=!!localStorage.getItem(SK_ENC)&&!localStorage.getItem(SK);
+    const blob=JSON.parse(localStorage.getItem(SK_ENC));
+    const hidden=!JSON.stringify(blob).includes('0xabc');
+    saved=keepS;$('#pass').value=keepP;$('#store').value=keepM;wipe();
+    return{ok:noSave&&encOnly&&hidden,detail:'blank='+noSave+' enc='+encOnly+' hidden='+hidden};
+  });
+  await t('plaintext mode is labelled unsafe',async()=>{
+    wipe();$('#store').value='plain';await persist();
+    const ok=!!localStorage.getItem(SK)&&storeState.style.color==='rgb(245, 158, 11)';
+    return{ok,detail:storeState.textContent};
+  });
+  await t('encrypt/decrypt round trip',async()=>{
+    const src=[{n:1,pk:'0xdead',phrase:'a b'}];
+    const bl=await seal(src,'hunter2hunter2');
+    const back=await open_(bl,'hunter2hunter2');
+    return{ok:JSON.stringify(back)===JSON.stringify(src),detail:'round trip ok'};
+  });
+  await t('wrong passphrase rejected',async()=>{
+    const bl=await seal([{x:1}],'rightpass');
+    try{await open_(bl,'wrongpass');return{ok:false,detail:'decrypted anyway'}}catch{return{ok:true,detail:'throws'}}
+  });
+
+  window.fetch=real;
+  const pass=R.filter(r=>r[0]).length;
+  out.innerHTML=`<div style="margin:6px 0;font-weight:600;color:${pass===R.length?'#16a34a':'#ef4444'}">${pass}/${R.length} passed</div>`+
+    R.map(([ok,n,d])=>`<div style="padding:2px 0"><span style="color:${ok?'#16a34a':'#ef4444'}">${ok?'PASS':'FAIL'}</span> ${n}${d&&!ok?` <span style="opacity:.5">— ${d}</span>`:''}</div>`).join('');
 };
 
 /* --- boot --- */
@@ -615,6 +756,7 @@ $('#unlock').onclick=async()=>{
   }catch{}
   if(saved.length){saved.forEach(h=>render(h,false));statusEl.textContent=saved.length+' saved hits restored.'}
   sync();loadTargets();refreshStart();
+  storeState.textContent=$('#store').value==='off'?'Not saving.':'Set an 8+ character passphrase to start saving.';
 })();
 </script>
 </body>
