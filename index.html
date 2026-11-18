@@ -782,10 +782,22 @@ $('#selftest').onclick=async()=>{
     return{ok:r.abort===true,detail:'err='+r.err};
   });
   await t('timeout flagged distinctly',async()=>{
-    TIMEOUT=40;window.fetch=()=>new Promise(()=>{});
-    const r=await rpc('http://x',{});
-    TIMEOUT=8000;window.fetch=real;
-    return{ok:r.err==='timeout'&&!r.abort,detail:'err='+r.err};
+    const previousTimeout=TIMEOUT;
+    const previousFetch=window.fetch;
+    try{
+      TIMEOUT=40;
+      window.fetch=(_url,opts={})=>new Promise((_resolve,reject)=>{
+        const signal=opts.signal;
+        const fail=()=>reject(new DOMException('The operation was aborted.','AbortError'));
+        if(signal?.aborted){fail();return}
+        signal?.addEventListener('abort',fail,{once:true});
+      });
+      const r=await rpc('http://x',{});
+      return{ok:r.err==='timeout'&&!r.abort,detail:'err='+r.err};
+    }finally{
+      TIMEOUT=previousTimeout;
+      window.fetch=previousFetch;
+    }
   });
   await t('batch reaches concurrency cap',async()=>{
     let active=0,max=0;const lim=semaphore(8);
