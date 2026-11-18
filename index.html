@@ -902,7 +902,7 @@ $('#selftest').onclick=async()=>{
     const account=root.derivePath(accountPath);
     const xpub=account.neuter().extendedKey;
     const publicChild=HDNodeWallet.fromExtendedKey(xpub).derivePath('0/4');
-    const viaX=b58c(0x00,h160(publicChild.publicKey));
+    const viaX=b58c(0x00,h160(getBytes(computePublicKey(publicChild.publicKey,true))));
     const viaSeed=addrOf('btc',root.derivePath(accountPath+'/0/4').privateKey);
     return{ok:viaX===viaSeed,detail:viaX===viaSeed?'xpub matches seed-derived address':'MISMATCH'};
   });
@@ -917,9 +917,10 @@ $('#selftest').onclick=async()=>{
     const r=await rpc('http://x',{},ctl.signal);
     return{ok:r.abort===true,detail:'err='+r.err};
   });
-  await t('timeout flagged',async()=>{
+  await t('timeout flagged, fetch and timeout restored',async()=>{
     const previousTimeout=TIMEOUT;
     const previousFetch=window.fetch;
+    let r;
     try{
       TIMEOUT=40;
       window.fetch=(_url,opts={})=>new Promise((_resolve,reject)=>{
@@ -928,12 +929,12 @@ $('#selftest').onclick=async()=>{
         if(signal?.aborted){fail();return}
         signal?.addEventListener('abort',fail,{once:true});
       });
-      const r=await rpc('http://x',{});
-      return{ok:r.err==='timeout'&&!r.abort,detail:'err='+r.err};
+      r=await rpc('http://x',{});
     }finally{
       TIMEOUT=previousTimeout;
       window.fetch=previousFetch;
     }
+    return{ok:r.err==='timeout'&&!r.abort&&TIMEOUT===previousTimeout&&window.fetch===previousFetch,detail:'err='+r.err};
   });
   await t('batch reaches cap',async()=>{
     let a=0,m=0;const lim=semaphore(8);
