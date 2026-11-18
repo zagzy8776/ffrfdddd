@@ -898,11 +898,13 @@ $('#selftest').onclick=async()=>{
     return{ok:a===b,detail:a===b?'identical across '+w.length+' rows':'MISMATCH'};
   });
   await t('xpub derives matching addresses',()=>{
-    const x=HDNodeWallet.fromPhrase(P,'').neuter().extendedKey;
-    const n=HDNodeWallet.fromExtendedKey(x);
-    const viaX=addrOf('btc',n.derivePath('4').privateKey);
-    const viaS=addrOf('btc',root.derivePath("m/44'/0'/0'/0/4").privateKey);
-    return{ok:viaX!==viaS,detail:'xpub root differs from account path (expected)'};
+    const accountPath="m/44'/0'/0'";
+    const account=root.derivePath(accountPath);
+    const xpub=account.neuter().extendedKey;
+    const publicChild=HDNodeWallet.fromExtendedKey(xpub).derivePath('0/4');
+    const viaX=b58c(0x00,h160(publicChild.publicKey));
+    const viaSeed=addrOf('btc',root.derivePath(accountPath+'/0/4').privateKey);
+    return{ok:viaX===viaSeed,detail:viaX===viaSeed?'xpub matches seed-derived address':'MISMATCH'};
   });
 
   await t('network failure classified',async()=>{
